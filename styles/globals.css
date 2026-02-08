@@ -1,9 +1,25 @@
+/* Tailwind 기본 설정 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 기존 글로벌 스타일 유지 */
 html,
 body {
   padding: 0;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
-    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    Segoe UI,
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    Fira Sans,
+    Droid Sans,
+    Helvetica Neue,
+    sans-serif;
 }
 
 a {
@@ -15,12 +31,12 @@ a {
   box-sizing: border-box;
 }
 
+/* 다크 모드 */
 @media (prefers-color-scheme: dark) {
   html {
     color-scheme: dark;
   }
   body {
-    color: white;
-    background: black;
+    @apply bg-black text-white;
   }
 }
