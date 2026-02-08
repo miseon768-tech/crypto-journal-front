@@ -30,43 +30,62 @@ export default function SignUpPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "auto", padding: 20 }}>
-      <h1>회원가입</h1>
-      <form onSubmit={handleSignUp}>
-        <input
-          type="email"
-          placeholder="이메일"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <button type="button" onClick={handleSendCode}>
-          인증 코드 전송
-        </button>
-        <input
-          type="text"
-          placeholder="인증 코드"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          required
-        />
-        <input
-          type="text"
-          placeholder="이름"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <input
-          type="password"
-          placeholder="비밀번호"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <button type="submit">회원가입</button>
-      </form>
-      {message && <p style={{ color: "red" }}>{message}</p>}
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 font-sans p-4">
+      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">
+          회원가입
+        </h1>
+
+        <form className="flex flex-col gap-4" onSubmit={handleSignUp}>
+          <input
+            type="email"
+            placeholder="이메일"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="p-3 border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+          />
+          <button
+            type="button"
+            onClick={handleSendCode}
+            className="p-3 bg-gray-800 text-white rounded-md hover:bg-gray-900 transition"
+          >
+            인증 코드 전송
+          </button>
+          <input
+            type="text"
+            placeholder="인증 코드"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            required
+            className="p-3 border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+          />
+          <input
+            type="text"
+            placeholder="이름"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className="p-3 border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+          />
+          <input
+            type="password"
+            placeholder="비밀번호"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="p-3 border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+          />
+          <button
+            type="submit"
+            className="p-3 bg-gray-900 text-white rounded-md hover:bg-black transition font-semibold"
+          >
+            회원가입
+          </button>
+        </form>
+
+        {message && <p className="text-red-500 mt-4 text-center">{message}</p>}
+      </div>
     </div>
   );
 }
