@@ -31,10 +31,8 @@ export default function SignUpPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 font-sans p-4">
-      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">
-          회원가입
-        </h1>
+      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">회원가입</h1>
 
         <form className="flex flex-col gap-4" onSubmit={handleSignUp}>
           <input
@@ -85,6 +83,31 @@ export default function SignUpPage() {
         </form>
 
         {message && <p className="text-red-500 mt-4 text-center">{message}</p>}
+
+        {/* 소셜 로그인 */}
+        <div className="mt-6 flex flex-col gap-3">
+          {/* 구글 */}
+          <a
+            href={`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI)}&response_type=code&scope=profile email`}
+          >
+            <img
+              src="/web_light_rd_ctn@1x.png"
+              alt="구글 로그인"
+              className="w-full h-12 object-contain"
+            />
+          </a>
+
+          {/* 네이버 */}
+          <a
+            href={`https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_NAVER_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_NAVER_REDIRECT_URI)}&state=${Math.random().toString(36).substring(2)}`}
+          >
+            <img
+              src="/NAVER_login_Dark_KR_green_center_H48.png"
+              alt="네이버 로그인"
+              className="w-full h-12 object-contain"
+            />
+          </a>
+        </div>
       </div>
     </div>
   );
