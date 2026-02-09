@@ -16,13 +16,16 @@ export default function FavoriteCoinPage() {
 
   useEffect(() => {
     if (!token) return;
-    getFavoriteCoins(token).then((res) => setCoins(res.coins || []));
+    getFavoriteCoins(token)
+      .then((res) => setCoins(res.favoriteCoinList || []))
+      .catch(() => setCoins([]));
   }, [token]);
 
   const handleAdd = async () => {
     try {
-      const res = await addFavoriteCoin(newCoin, token);
-      setCoins(res.coins || []);
+      await addFavoriteCoin(newCoin, token);
+      const res = await getFavoriteCoins(token);
+      setCoins(res.favoriteCoinList || []);
       setNewCoin("");
     } catch (err) {
       alert(err.message);
@@ -32,9 +35,8 @@ export default function FavoriteCoinPage() {
   const handleDeleteSelected = async () => {
     try {
       await deleteFavoriteCoin(selectedIds, token);
-      setCoins((prev) =>
-        prev.filter((c) => !selectedIds.includes(c.tradingPairId)),
-      );
+      const res = await getFavoriteCoins(token).catch(() => ({ favoriteCoinList: [] }));
+      setCoins(res.favoriteCoinList || []);
       setSelectedIds([]);
     } catch (err) {
       alert(err.message);
@@ -62,7 +64,10 @@ export default function FavoriteCoinPage() {
           value={newCoin}
           onChange={(e) => setNewCoin(e.target.value)}
         />
-        <button className="px-4 py-3 bg-gray-800 text-white rounded-lg font-semibold hover:bg-gray-700 active:scale-95 transition-all">
+        <button
+          onClick={handleAdd}
+          className="px-4 py-3 bg-gray-800 text-white rounded-lg font-semibold hover:bg-gray-700 active:scale-95 transition-all"
+        >
           추가
         </button>
       </div>
@@ -90,9 +95,7 @@ export default function FavoriteCoinPage() {
                   }}
                   className="w-4 h-4 accent-gray-800"
                 />
-                <span>
-                  {c.market} - {c.koreanName} ({c.englishName})
-                </span>
+                <span>tradingPairId: {c.tradingPairId}</span>
               </div>
             </li>
           ))}
@@ -100,10 +103,16 @@ export default function FavoriteCoinPage() {
       )}
 
       <div className="flex gap-3">
-        <button className="flex-1 px-4 py-3 bg-gray-300 text-gray-900 rounded-lg font-semibold hover:bg-gray-200 active:scale-95 transition-all">
+        <button
+          onClick={handleDeleteSelected}
+          className="flex-1 px-4 py-3 bg-gray-300 text-gray-900 rounded-lg font-semibold hover:bg-gray-200 active:scale-95 transition-all"
+        >
           선택 삭제
         </button>
-        <button className="flex-1 px-4 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 active:scale-95 transition-all">
+        <button
+          onClick={handleDeleteAll}
+          className="flex-1 px-4 py-3 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-600 active:scale-95 transition-all"
+        >
           전체 삭제
         </button>
       </div>

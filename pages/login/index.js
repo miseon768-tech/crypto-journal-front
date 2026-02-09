@@ -34,12 +34,41 @@ export default function LoginPage() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError(""); // 에러 초기화
     try {
       const res = await login(email, password);
-      localStorage.setItem("token", res.token);
+
+      // 다양한 응답 형태 지원: JSON { token }, plain token string, 또는 {data:{token:...}}
+      let token = null;
+      if (res && typeof res === "object") {
+        token = res.token || (res.data && res.data.token) || null;
+      } else if (typeof res === "string") {
+        token = res;
+      }
+
+      if (!token) {
+        console.error("로그인: 토큰을 찾을 수 없음, 응답: ", res);
+        throw new Error("로그인에 실패했습니다 (토큰 없음)");
+      }
+
+      localStorage.setItem("token", token);
       router.push("/mypage");
     } catch (err) {
-      setError(err.message || "로그인 실패");
+      // 에러에 status/body가 붙어있다면 콘솔에 자세히 남김
+      console.error("login error:", err);
+
+      let userMessage = err.message || "로그인 실패";
+
+      // 백엔드 에러 메시지에 따른 사용자 친화적 메시지
+      if (userMessage.includes("이메일이 일치하지 않습니다")) {
+        userMessage = "등록되지 않은 이메일입니다. 회원가입을 진행해주세요.";
+      } else if (userMessage.includes("비밀번호가 일치하지 않습니다")) {
+        userMessage = "이메일 또는 비밀번호가 올바르지 않습니다.";
+      } else if (userMessage.includes("400") || err.status === 400) {
+        userMessage = "이메일 또는 비밀번호를 확인해주세요.";
+      }
+
+      setError(userMessage);
     }
   };
 
@@ -81,14 +110,16 @@ export default function LoginPage() {
         </form>
 
         {error && (
-          <p className="text-red-500 mt-4 animate-pulse font-medium">{error}</p>
+          <div className="bg-red-50 border border-red-300 rounded-lg p-4 mt-4">
+            <p className="text-red-600 font-medium">{error}</p>
+          </div>
         )}
 
         <button
           onClick={goToSignUp}
-          className="mt-6 p-3 w-full border border-green-600 text-green-600 font-semibold rounded-lg hover:bg-green-50 transition"
+          className="mt-6 p-3 w-full border-2 border-green-600 text-green-600 font-bold rounded-lg hover:bg-green-600 hover:text-white transition shadow-md"
         >
-          회원가입
+          회원가입하기
         </button>
 
         <div className="mt-6 flex flex-col gap-3">
@@ -99,7 +130,7 @@ export default function LoginPage() {
             className="hover:shadow-lg transition"
           >
             <img
-              src="/web_light_rd_ctn@1x.png"
+              src="/web_light_rd_ctn@2x.png"
               alt="구글 로그인"
               className="w-full h-12 object-contain"
             />

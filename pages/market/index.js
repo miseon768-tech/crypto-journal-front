@@ -25,8 +25,9 @@ export default function MarketPage() {
               key={pair.id}
               className="p-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 hover:bg-gray-100 transition"
             >
-              <span className="font-semibold">{pair.marketCode}</span> /{" "}
-              {pair.name}
+              <span className="font-semibold">{pair.market}</span>
+              <span className="text-gray-600"> {pair.koreanName}</span>
+              <span className="text-gray-500"> ({pair.englishName})</span>
             </li>
           ))}
         </ul>

@@ -10,7 +10,7 @@ export default function MyPostsPage() {
   useEffect(() => {
     getMyPosts(token)
       .then((res) => {
-        setPosts(res.posts || []);
+        setPosts(res.postList || []);
         setLoading(false);
       })
       .catch((err) => {

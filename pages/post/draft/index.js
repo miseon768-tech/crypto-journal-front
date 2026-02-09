@@ -13,14 +13,22 @@ export default function DraftPage() {
   useEffect(() => {
     if (!token) return;
     getDrafts(token)
-      .then((res) => setDrafts(res.drafts || []))
+      .then((res) => setDrafts(res.draftList || []))
       .catch(console.error);
   }, [token]);
 
   const handleSave = async () => {
     try {
       const saved = await saveDraft({ title, content }, token);
-      setDrafts((prev) => [...prev, saved]);
+      setDrafts((prev) => [
+        {
+          id: saved.id,
+          title: saved.title,
+          content,
+          updatedAt: saved.savedAt,
+        },
+        ...prev,
+      ]);
       setTitle("");
       setContent("");
       setMessage("임시 저장 완료");
@@ -78,7 +86,12 @@ export default function DraftPage() {
                   key={draft.id}
                   className="p-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-800"
                 >
-                  {draft.title}
+                  <p className="font-medium">{draft.title}</p>
+                  {draft.content && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      {draft.content}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
