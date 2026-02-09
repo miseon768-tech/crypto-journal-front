@@ -94,3 +94,19 @@ export const deleteMember = async (token, password) => {
   if (!res.ok) throw new Error("회원 탈퇴 실패");
   return res.json();
 };
+
+// 이메일 인증 코드 확인
+export const verifyEmailCode = async (email, code) => {
+  const res = await fetch(`${API_BASE}/email/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.message || "인증 코드 확인 실패");
+  }
+
+  return res.json();
+};

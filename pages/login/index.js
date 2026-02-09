@@ -46,7 +46,7 @@ export default function LoginPage() {
   const goToSignUp = () => router.push("/signup");
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-blue-50 font-sans px-4">
+    <div className="flex items-center justify-center min-h-screen bg-linear-to-br from-green-50 to-blue-50 font-sans px-4">
       <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md text-center border border-gray-200">
         <h1 className="text-4xl font-extrabold mb-4 text-gray-800">
           Crypto Journal
