@@ -24,18 +24,52 @@ export default function MyPage() {
 
         getMyInfo(token)
             .then((res) => {
-                setInfo(res);
-                setEmail(res.email || "");
-                setNickname(res.nickname || "");
+                console.log("mypage: getMyInfo 성공", res);
+
+                // 응답 정규화: 여러 형태의 응답을 처리
+                let payload = res;
+                if (!payload) {
+                    throw new Error("내 정보 응답이 비어있습니다.");
+                }
+
+                // 서버가 { member: {...} } 같은 래퍼를 붙여 반환할 수 있음
+                if (payload.member && typeof payload.member === "object") {
+                    payload = payload.member;
+                }
+
+                // 혹은 { data: {...} } 형태
+                if (payload.data && typeof payload.data === "object") {
+                    payload = payload.data;
+                }
+
+                // 이제 반드시 객체여야 하며 이메일 등 필드를 사용
+                if (typeof payload !== "object") {
+                    throw new Error("내 정보 응답 형식이 올바르지 않습니다.");
+                }
+
+                setInfo(payload);
+                setEmail(payload.email || "");
+                setNickname(payload.nickname || "");
                 setHasPassword(true);
             })
             .catch((err) => {
-                console.error("내 정보 조회 실패:", err);
-                setError("로그인이 필요합니다.");
+                console.error("mypage: 내 정보 조회 실패:", err);
+                console.error("mypage: 에러 메시지:", err.message);
+
+                let errorMessage = err.message || "로그인이 필요합니다.";
+
+                // 토큰 관련 에러 처리
+                if (errorMessage.includes("401") ||
+                    errorMessage.includes("403") ||
+                    errorMessage.includes("토큰")) {
+                    errorMessage = "토큰이 유효하지 않습니다. 다시 로그인해주세요.";
+                }
+
+                setError(errorMessage);
                 localStorage.removeItem("token");
-                setTimeout(() => router.push("/login"), 1500);
+                setTimeout(() => router.push("/login"), 2000);
             });
-    }, []);
+    }, [router]);
 
     // ✅ 정보 수정
     const handleUpdate = async () => {

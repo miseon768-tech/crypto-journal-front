@@ -50,10 +50,19 @@ export default function SignUpPage() {
       return;
     }
     try {
-      await signUp({ email, name, password, code });
-      router.push("/login");
+      const res = await signUp({ email, nickname, password, code });
+      console.log("회원가입 응답:", res);
+
+      if (res && res.success) {
+        setMessage("회원가입 완료! 로그인 페이지로 이동합니다.");
+        setMessageColor("text-green-600");
+        setTimeout(() => router.push("/login"), 1500);
+      } else {
+        throw new Error("회원가입에 실패했습니다.");
+      }
     } catch (err) {
-      setMessage(err.message);
+      console.error("회원가입 오류:", err);
+      setMessage(err.message || "회원가입 실패");
       setMessageColor("text-red-500");
     }
   };
