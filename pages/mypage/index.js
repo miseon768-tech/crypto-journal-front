@@ -1,11 +1,11 @@
 import {useEffect, useState} from "react";
 import {useRouter} from "next/router";
 import {getMyInfo, updateMember, changePassword} from "../api/member";
-import { useAccount } from "../../stores/account-store";
+import {useAccount} from "../../stores/account-store";
 
 export default function MyPage() {
     const router = useRouter();
-    const { account } = useAccount();
+    const {account} = useAccount();
     const [info, setInfo] = useState(null);
     const [email, setEmail] = useState("");
     const [nickname, setNickname] = useState("");
@@ -42,7 +42,11 @@ export default function MyPage() {
                 // 새 반환 형태: { data } 또는 { error }
                 if (res && res.error) {
                     console.error('mypage: 서버에서 에러 반환', res.error);
-                    setDebugInfo({ status: res.error.status || null, body: res.error.body || res.error.message, tokenSnippet: res.error.tokenSnippet || null });
+                    setDebugInfo({
+                        status: res.error.status || null,
+                        body: res.error.body || res.error.message,
+                        tokenSnippet: res.error.tokenSnippet || null
+                    });
 
                     let errMsg = res.error.message || '내 정보 조회 실패';
                     if (String(errMsg).includes('401') || String(errMsg).includes('403') || String(errMsg).includes('토큰')) {
@@ -95,7 +99,7 @@ export default function MyPage() {
                 // 서버가 전달한 body가 있으면 표시 (front에서 err.body로 던지도록 개선함)
                 const serverBody = err.body || err.response || null;
                 console.error("mypage: 서버 응답 body:", serverBody);
-                setDebugInfo({ status: err.status || (err.response && err.response.status) || null, body: serverBody });
+                setDebugInfo({status: err.status || (err.response && err.response.status) || null, body: serverBody});
 
                 let errorMessage = err.message || "로그인이 필요합니다.";
 
@@ -165,7 +169,11 @@ export default function MyPage() {
         if (!token) return router.push("/login");
         const res = await getMyInfo(token);
         if (res && res.error) {
-            setDebugInfo({ status: res.error.status || null, body: res.error.body || res.error.message, tokenSnippet: res.error.tokenSnippet || null });
+            setDebugInfo({
+                status: res.error.status || null,
+                body: res.error.body || res.error.message,
+                tokenSnippet: res.error.tokenSnippet || null
+            });
             let errMsg = res.error.message || '내 정보 조회 실패';
             if (String(errMsg).includes('401') || String(errMsg).includes('403') || String(errMsg).includes('토큰')) {
                 errMsg = '토큰이 유효하지 않습니다. 다시 로그인해주세요.';
@@ -214,10 +222,10 @@ export default function MyPage() {
                 <div className="text-center">
                     <p className="text-red-500 text-lg">{error}</p>
                     <p className="text-gray-500 mt-2">로그인 페이지로 이동합니다...</p>
-                 </div>
-             </div>
-         );
-     }
+                </div>
+            </div>
+        );
+    }
 
     if (!info) {
         return (
@@ -228,39 +236,47 @@ export default function MyPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 py-10 px-4">
-            <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-md p-8 space-y-6">
-                <h1 className="text-3xl font-bold text-gray-800 text-center">
-                    마이페이지
-                </h1>
-                <p className="text-gray-600">ID: {info.id}</p>
+        <div className="min-h-screen py-16 px-6">
+            <div
+                className="max-w-xl mx-auto bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] space-y-10">
+
+                <div className="text-center">
+                    <h1 className="text-3xl font-semibold tracking-wide">My Page</h1>
+                    <p className="text-sm text-neutral-400 mt-2">
+                        닉네임 : {info.nickname}
+                    </p>
+                </div>
 
                 {/* 정보 수정 */}
-                <div className="space-y-3">
-                    <h2 className="text-lg font-semibold text-gray-700">정보 수정</h2>
+                <div className="space-y-4">
+                    <h2 className="text-lg font-medium text-neutral-300">정보 수정</h2>
+
                     <input
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="이메일"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-gray-800"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30 transition"
                     />
+
                     <input
                         value={nickname}
                         onChange={(e) => setNickname(e.target.value)}
                         placeholder="닉네임"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-gray-800"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30 transition"
                     />
+
                     <button
                         onClick={handleUpdate}
-                        className="w-full bg-gray-800 text-white font-semibold py-2 rounded-lg hover:bg-gray-700 transition"
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700
+                        hover:from-neutral-600 hover:via-neutral-500 hover:to-neutral-600 transition duration-300 shadow-lg hover:shadow-xl font-medium"
                     >
                         수정
                     </button>
                 </div>
 
                 {/* 비밀번호 변경 */}
-                <div className="space-y-3">
-                    <h2 className="text-lg font-semibold text-gray-700">
+                <div className="space-y-4">
+                    <h2 className="text-lg font-medium text-neutral-300">
                         {hasPassword ? "비밀번호 변경" : "비밀번호 설정"}
                     </h2>
 
@@ -270,7 +286,7 @@ export default function MyPage() {
                             placeholder="현재 비밀번호"
                             value={oldPassword}
                             onChange={(e) => setOldPassword(e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-gray-800"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30 transition"
                         />
                     )}
 
@@ -279,7 +295,7 @@ export default function MyPage() {
                         placeholder={hasPassword ? "새 비밀번호" : "비밀번호"}
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-gray-800"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30 transition"
                     />
 
                     <input
@@ -287,12 +303,13 @@ export default function MyPage() {
                         placeholder={hasPassword ? "새 비밀번호 확인" : "비밀번호 확인"}
                         value={newPasswordConfirm}
                         onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 text-gray-800"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white/30 transition"
                     />
 
                     <button
                         onClick={handleChangePassword}
-                        className="w-full bg-gray-800 text-white font-semibold py-2 rounded-lg hover:bg-gray-700 transition"
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700
+                        hover:from-neutral-600 hover:via-neutral-500 hover:to-neutral-600 transition duration-300 shadow-lg hover:shadow-xl font-medium"
                     >
                         {hasPassword ? "변경" : "설정"}
                     </button>
