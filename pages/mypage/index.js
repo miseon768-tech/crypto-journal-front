@@ -242,9 +242,6 @@ export default function MyPage() {
 
                 <div className="text-center">
                     <h1 className="text-3xl font-semibold tracking-wide">My Page</h1>
-                    <p className="text-sm text-neutral-400 mt-2">
-                        닉네임 : {info.nickname}
-                    </p>
                 </div>
 
                 {/* 정보 수정 */}
@@ -267,8 +264,11 @@ export default function MyPage() {
 
                     <button
                         onClick={handleUpdate}
-                        className="w-full py-3 rounded-xl bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700
-                        hover:from-neutral-600 hover:via-neutral-500 hover:to-neutral-600 transition duration-300 shadow-lg hover:shadow-xl font-medium"
+                        className="w-full py-3 rounded-xl
+                                  text-neutral-300
+                                  transition-all duration-200
+                                  hover:bg-white/10
+                                  hover:text-white"
                     >
                         수정
                     </button>
@@ -308,8 +308,11 @@ export default function MyPage() {
 
                     <button
                         onClick={handleChangePassword}
-                        className="w-full py-3 rounded-xl bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700
-                        hover:from-neutral-600 hover:via-neutral-500 hover:to-neutral-600 transition duration-300 shadow-lg hover:shadow-xl font-medium"
+                        className="w-full py-3 rounded-xl
+                                  text-neutral-300
+                                  transition-all duration-200
+                                  hover:bg-white/10
+                                  hover:text-white"
                     >
                         {hasPassword ? "변경" : "설정"}
                     </button>
