@@ -1,13 +1,16 @@
+import { authHeader } from './_client';
+
 const API_BASE = "http://localhost:8080/api/post"; // 스프링 서버 주소
 
 // 글 작성
 export const createPost = async (data, token) => {
+  const headers = {
+    "Content-Type": "application/json",
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("글 작성 실패");
@@ -16,12 +19,13 @@ export const createPost = async (data, token) => {
 
 // 글 수정
 export const updatePost = async (postId, data, token) => {
+  const headers = {
+    "Content-Type": "application/json",
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/${postId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("글 수정 실패");
@@ -30,11 +34,12 @@ export const updatePost = async (postId, data, token) => {
 
 // 글 삭제
 export const deletePost = async (postId, token) => {
+  const headers = {
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/${postId}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
   });
   if (!res.ok) throw new Error("글 삭제 실패");
   return res.json();
@@ -56,8 +61,11 @@ export const getPostById = async (postId) => {
 
 // 내가 쓴 글 조회
 export const getMyPosts = async (token) => {
+  const headers = {
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
   if (!res.ok) throw new Error("내 글 조회 실패");
   return res.json();
@@ -74,9 +82,12 @@ export const searchPosts = async (keyword) => {
 
 // 좋아요
 export const likePost = async (postId, token) => {
+  const headers = {
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/like/${postId}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
   if (!res.ok) throw new Error("좋아요 실패");
   return res.json();
@@ -84,9 +95,12 @@ export const likePost = async (postId, token) => {
 
 // 좋아요 취소
 export const unlikePost = async (postId, token) => {
+  const headers = {
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/like/${postId}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
   if (!res.ok) throw new Error("좋아요 취소 실패");
   return res.json();
@@ -94,8 +108,11 @@ export const unlikePost = async (postId, token) => {
 
 // 내가 좋아요한 글 목록
 export const getMyLikedPosts = async (token) => {
+  const headers = {
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/like/my`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
   if (!res.ok) throw new Error("내 좋아요 글 조회 실패");
   return res.json();
@@ -110,12 +127,13 @@ export const getPostLikeCount = async (postId) => {
 
 // 글 임시 저장
 export const saveDraft = async (data, token) => {
+  const headers = {
+    "Content-Type": "application/json",
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/draft`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("임시 저장 실패");
@@ -124,8 +142,11 @@ export const saveDraft = async (data, token) => {
 
 // 임시 글 불러오기
 export const getDrafts = async (token) => {
+  const headers = {
+    ...authHeader(token),
+  };
   const res = await fetch(`${API_BASE}/draft`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
   if (!res.ok) throw new Error("임시 글 조회 실패");
   return res.json();
