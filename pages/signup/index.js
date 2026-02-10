@@ -1,6 +1,6 @@
 import {useState} from "react";
 import {useRouter} from "next/router";
-import {signUp, sendEmailCode, verifyEmailCode} from "../api/member";
+import {signUp, sendEmailCode, verifyEmailCode} from "../../api/member";
 
 export default function SignUpPage() {
     const router = useRouter();

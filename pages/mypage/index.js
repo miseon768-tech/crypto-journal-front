@@ -1,6 +1,6 @@
 import {useEffect, useState} from "react";
 import {useRouter} from "next/router";
-import {getMyInfo, updateMember, changePassword} from "../api/member";
+import {getMyInfo, updateMember, changePassword} from "../../api/member";
 import {useAccount} from "../../stores/account-store";
 
 export default function MyPage() {
