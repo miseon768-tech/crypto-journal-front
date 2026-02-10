@@ -1,5 +1,4 @@
 import axios from "axios";
-import { authHeader } from "./_client";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ||

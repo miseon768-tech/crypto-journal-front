@@ -1,4 +1,3 @@
-import { authHeader } from './_client';
 
 const API_BASE = "http://localhost:8080/api/assets/favorites";
 

@@ -3,7 +3,6 @@ import { useState, useEffect } from "react";
 import { login, getMyInfo } from "../../api/member";
 import { socialLogin } from "../../api/social";
 import { useAccount, useToken } from "../../stores/account-store";
-import { normalizeTokenString } from "../../api/_client";
 
 export default function Login() {
     const router = useRouter();
@@ -17,6 +16,44 @@ export default function Login() {
 
     const { setAccount } = useAccount();
     const { setToken } = useToken();
+
+    // ------------------------
+    // 간단 토큰 정리 함수 (_client 없이) -> 안전한 버전으로 교체
+    // ------------------------
+    const normalizeTokenString = (token) => {
+        if (!token && token !== "") return null;
+        try {
+            if (typeof token === 'string') {
+                const t = token.trim();
+                if (!t) return null;
+                if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('\"{') && t.endsWith('}\"'))) {
+                    try {
+                        const parsed = JSON.parse(t);
+                        // parsed가 객체이면 내부 토큰 추출
+                        if (parsed && typeof parsed === 'object') {
+                            if (parsed.token) return String(parsed.token).trim();
+                            if (parsed.accessToken) return String(parsed.accessToken).trim();
+                            if (parsed.value) return String(parsed.value).trim();
+                            if (parsed.data && parsed.data.token) return String(parsed.data.token).trim();
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+                return t;
+            }
+            if (typeof token === 'object') {
+                if (token.token) return String(token.token).trim();
+                if (token.accessToken) return String(token.accessToken).trim();
+                if (token.value) return String(token.value).trim();
+                if (token.data && token.data.token) return String(token.data.token).trim();
+                try { return JSON.stringify(token).trim(); } catch (e) { return null; }
+            }
+            return String(token).trim();
+        } catch (e) {
+            return null;
+        }
+    };
 
     // 토큰 저장 후 서버 검증
     async function persistTokenAndFetchProfile(rawToken) {
