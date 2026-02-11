@@ -1,60 +1,105 @@
 // api/assetPriceStream.js
 import axios from "axios";
+import { getStoredToken } from "./member";
 
-const API_BASE = "http://localhost:8080/api/KRWAssets/summary";
+const API_HOST = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
+const API_BASE = `${API_HOST.replace(/\/$/, "")}/api/KRWAssets/summary`;
 
 // ===== 토큰 헤더 생성 =====
 export const authHeader = (token) => {
-    if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
+    const t = getStoredToken(token);
+    if (!t) return {};
+    return { Authorization: `Bearer ${t}` };
 };
+
+async function handleAxiosGet(url, token, config = {}) {
+    try {
+        const headers = { ...(config.headers || {}), ...authHeader(token) };
+        const res = await axios.get(url, { ...config, headers });
+        return res;
+    } catch (err) {
+        if (err.response) {
+            const status = err.response.status;
+            const data = err.response.data;
+            const message = `GET ${url} failed with status ${status} - ${JSON.stringify(data)}`;
+            const e = new Error(message);
+            e.status = status;
+            e.body = data;
+            throw e;
+        }
+        const e = new Error(`GET ${url} failed: ${err.message}`);
+        throw e;
+    }
+}
 
 // ===== API 함수 =====
 
-// 총 보유자산 조회
 export const getTotalAssets = async (token) => {
-    const res = await axios.get(`${API_BASE}/total`, { headers: authHeader(token) });
-    return res.data.totalAssets; // 백엔드 Response 구조 기준
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/total`, token);
+        return res.data?.totalAssets ?? 0;
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return 0;
+        throw e;
+    }
 };
 
-// 총 평가금액 조회
 export const getTotalEvalAmount = async (token) => {
-    const res = await axios.get(`${API_BASE}/total-eval-amount`, { headers: authHeader(token) });
-    return res.data.totalEvalAmount;
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/total-eval-amount`, token);
+        return res.data?.totalEvalAmount ?? 0;
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return 0;
+        throw e;
+    }
 };
 
-// 총 평가손익 조회
 export const getTotalProfit = async (token) => {
-    const res = await axios.get(`${API_BASE}/profit/total`, { headers: authHeader(token) });
-    return res.data.totalProfit;
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/profit/total`, token);
+        return res.data?.totalProfit ?? 0;
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return 0;
+        throw e;
+    }
 };
 
-// 총 수익률 조회
 export const getTotalProfitRate = async (token) => {
-    const res = await axios.get(`${API_BASE}/profit-rate`, { headers: authHeader(token) });
-    return res.data.totalProfitRate;
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/profit-rate`, token);
+        return res.data?.totalProfitRate ?? 0;
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return 0;
+        throw e;
+    }
 };
 
-// 보유자산 포트폴리오 조회
 export const getPortfolioAsset = async (token) => {
-    const res = await axios.get(`${API_BASE}/portfolio`, { headers: authHeader(token) });
-    return res.data.portfolioItemList; // list 형태
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/portfolio`, token);
+        return res.data?.portfolioItemList ?? [];
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return [];
+        throw e;
+    }
 };
 
-// 코인별 평가손익 조회 (market 필요)
 export const getCoinProfit = async (token, market) => {
-    const res = await axios.get(`${API_BASE}/profit`, {
-        headers: authHeader(token),
-        params: { market }
-    });
-    return res.data.profit;
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/profit`, token, { params: { market } });
+        return res.data?.profit ?? 0;
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return 0;
+        throw e;
+    }
 };
 
-// 코인별 평가금액 조회 (market 필요)
 export const getCoinEvalAmount = async (token, market) => {
-    const res = await axios.get(`${API_BASE}/eval-amount`, {
-        headers: authHeader(token),
-        params: { market }
-    });
-    return res.data.evalAmount;
+    try {
+        const res = await handleAxiosGet(`${API_BASE}/eval-amount`, token, { params: { market } });
+        return res.data?.evalAmount ?? 0;
+    } catch (e) {
+        if (e.status === 403 || e.status === 404) return 0;
+        throw e;
+    }
 };

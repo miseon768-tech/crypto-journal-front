@@ -1,15 +1,40 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/router";
 import WalletComponent from "../../components/WalletComponent";
 import RealtimeComponent from "../../components/RealtimeComponent";
 import CommunityComponent from "../../components/CommunityComponent";
 
 export default function Dashboard() {
+    const router = useRouter();
+    const queryTab = router.query.tab;
+
     const [activeTab, setActiveTab] = useState(null);
 
     // 각 컴포넌트 key
     const [walletKey, setWalletKey] = useState(0);
     const [realtimeKey, setRealtimeKey] = useState(0);
     const [communityKey, setCommunityKey] = useState(0);
+
+    // 쿼리 파라미터(tab)를 읽어 탭 설정
+    useEffect(() => {
+        if (!queryTab) return;
+        // 허용된 값만 적용
+        const allowed = ["wallet", "realtime", "community"];
+        if (allowed.includes(queryTab)) {
+            setActiveTab(queryTab);
+            // 키 증가로 강제 리렌더
+            if (queryTab === "wallet") setWalletKey(k => k + 1);
+            if (queryTab === "realtime") setRealtimeKey(k => k + 1);
+            if (queryTab === "community") setCommunityKey(k => k + 1);
+        }
+    }, [queryTab]);
+
+    const openTab = (tab) => {
+        // 내부 상태 변경
+        setActiveTab(tab);
+        // 쿼리 업데이트 (shallow로 페이지 리로드 방지)
+        router.push({ pathname: '/dashboard', query: { tab } }, undefined, { shallow: true });
+    };
 
     return (
         <div className="p-10">
@@ -18,8 +43,7 @@ export default function Dashboard() {
 
                 <div
                     onClick={() => {
-                        setActiveTab("wallet");
-                        setWalletKey(prev => prev + 1); // 클릭 시 강제 리렌더 가능
+                        openTab("wallet");
                     }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
@@ -28,8 +52,7 @@ export default function Dashboard() {
 
                 <div
                     onClick={() => {
-                        setActiveTab("realtime");
-                        setRealtimeKey(prev => prev + 1);
+                        openTab("realtime");
                     }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
@@ -38,8 +61,7 @@ export default function Dashboard() {
 
                 <div
                     onClick={() => {
-                        setActiveTab("community");
-                        setCommunityKey(prev => prev + 1);
+                        openTab("community");
                     }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
