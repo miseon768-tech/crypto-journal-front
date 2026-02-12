@@ -53,6 +53,12 @@ export default function WalletComponent() {
     const [selectedCoin, setSelectedCoin] = useState(""); // 수정할 코인 선택
     const [newCoinAmount, setNewCoinAmount] = useState(""); // 수정할 금액
     const [coinSearchResult, setCoinSearchResult] = useState([]); // 검색 결과
+    const [searchParams, setSearchParams] = useState({
+        tradingPairId: "",
+        market: "",
+        koreanName: "",
+        englishName: "",
+    });
     const [totalBuyAmount, setTotalBuyAmount] = useState(0); // 총 매수금액
 
     const token = typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null;
@@ -265,14 +271,17 @@ export default function WalletComponent() {
 
     // ===== 코인 검색 =====
     const handleSearchCoin = async (params) => {
+        if (!token) return;
         try {
             let results = [];
+
             if (params.tradingPairId) results = [await getAssetByTradingPair(params.tradingPairId, token)];
             else if (params.market) results = [await getAssetByMarket(params.market, token)];
             else if (params.koreanName) results = [await getAssetByKorean(params.koreanName, token)];
             else if (params.englishName) results = [await getAssetByEnglish(params.englishName, token)];
             else if (params.category) results = await getAssetByCategory({ category: params.category }, token);
-            setCoinSearchResult(results);
+
+            setCoinSearchResult(Array.isArray(results) ? results : [results]);
         } catch (e) {
             console.error(e);
             alert("코인 검색 실패");
@@ -288,7 +297,6 @@ export default function WalletComponent() {
                 <TabButton active={activeTab === "coins"} onClick={() => setActiveTab("coins")}>보유코인</TabButton>
                 <TabButton active={activeTab === "portfolio"} onClick={() => setActiveTab("portfolio")}>포트폴리오</TabButton>
                 <TabButton active={activeTab === "favorites"} onClick={() => setActiveTab("favorites")}>관심코인</TabButton>
-                <TabButton active={activeTab === "search"} onClick={() => setActiveTab("search")}>코인검색</TabButton>
             </div>
 
             {loading && <div>데이터를 불러오는 중...</div>}
@@ -399,7 +407,66 @@ export default function WalletComponent() {
 
                     {/* 관심코인 탭 */}
                     {activeTab === "favorites" && (
-                        <div className="space-y-2">
+                        <div className="space-y-4">
+                            {/* 검색창 */}
+                            <div className="flex gap-2 mb-4">
+                                <input
+                                    type="text"
+                                    placeholder="트레이딩페어"
+                                    value={searchParams.tradingPairId}
+                                    onChange={e => setSearchParams(prev => ({ ...prev, tradingPairId: e.target.value }))}
+                                    className="px-2 py-1 rounded bg-white/10"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="마켓"
+                                    value={searchParams.market}
+                                    onChange={e => setSearchParams(prev => ({ ...prev, market: e.target.value }))}
+                                    className="px-2 py-1 rounded bg-white/10"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="한국어 이름"
+                                    value={searchParams.koreanName}
+                                    onChange={e => setSearchParams(prev => ({ ...prev, koreanName: e.target.value }))}
+                                    className="px-2 py-1 rounded bg-white/10"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="영어 이름"
+                                    value={searchParams.englishName}
+                                    onChange={e => setSearchParams(prev => ({ ...prev, englishName: e.target.value }))}
+                                    className="px-2 py-1 rounded bg-white/10"
+                                />
+                                <button
+                                    onClick={() => handleSearchCoin(searchParams)}
+                                    className="px-3 py-1 bg-indigo-500 rounded"
+                                >
+                                    검색
+                                </button>
+                            </div>
+
+                            {/* 검색 결과 */}
+                            {coinSearchResult.length > 0 && (
+                                <div className="mb-2">
+                                    <h4>검색 결과</h4>
+                                    <ul className="space-y-1">
+                                        {coinSearchResult.map(c => (
+                                            <li key={c.tradingPair} className="bg-white/10 p-2 rounded flex justify-between items-center">
+                                                <span>{c.tradingPair} ({c.market})</span>
+                                                <button
+                                                    onClick={() => handleAddFavorite(c.tradingPair)}
+                                                    className="px-2 py-1 bg-green-500 rounded text-sm"
+                                                >
+                                                    관심코인 추가
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* 기존 관심 코인 리스트 */}
                             {favorites.length === 0 && <div className="text-gray-400 text-sm">관심 코인이 없습니다.</div>}
                             {favorites.length > 0 && (
                                 <>
@@ -421,26 +488,6 @@ export default function WalletComponent() {
                                     </button>
                                 </>
                             )}
-                        </div>
-                    )}
-
-                    {/* 코인검색 탭 */}
-                    {activeTab === "search" && (
-                        <div className="space-y-4">
-                            <div className="flex gap-2 mb-4">
-                                <input type="text" placeholder="트레이딩페어 입력"
-                                       onBlur={e => handleSearchCoin({ tradingPairId: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
-                                <input type="text" placeholder="마켓 입력"
-                                       onBlur={e => handleSearchCoin({ market: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
-                                <input type="text" placeholder="한국어 이름 입력"
-                                       onBlur={e => handleSearchCoin({ koreanName: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
-                                <input type="text" placeholder="영어 이름 입력"
-                                       onBlur={e => handleSearchCoin({ englishName: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
-                            </div>
-                            <div>
-                                <h4>검색 결과</h4>
-                                <pre className="bg-white/10 p-2 rounded">{JSON.stringify(coinSearchResult, null, 2)}</pre>
-                            </div>
                         </div>
                     )}
                 </>
