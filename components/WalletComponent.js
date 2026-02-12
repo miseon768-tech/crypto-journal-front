@@ -48,6 +48,7 @@ export default function WalletComponent() {
     const [assets, setAssets] = useState([]);
     const [portfolio, setPortfolio] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [markets, setMarkets] = useState([]);
 
     // 등록용 상태
     const [krwInput, setKrwInput] = useState("");
@@ -100,6 +101,20 @@ export default function WalletComponent() {
         }
     };
 
+    useEffect(() => {
+        const fetchMarkets = async () => {
+            try {
+                const data = await getAllMarkets();
+                console.log("마켓 데이터:", data);
+                setMarkets(data.tradingPairs || data.trading_pairs || []);
+            } catch (e) {
+                console.error("마켓 불러오기 실패:", e);
+            }
+        };
+
+        fetchMarkets();
+    }, []);
+
     // ===== KRW 등록 =====
     const handleAddKrw = async () => {
         if (!krwInput || isNaN(krwInput)) return alert("금액을 숫자로 입력하세요");
@@ -144,13 +159,18 @@ export default function WalletComponent() {
                     <button onClick={handleAddKrw} className="px-3 py-1 bg-indigo-500 rounded">KRW 등록</button>
                 </div>
                 <div className="flex gap-2">
-                    <input
-                        type="text"
+                    <select
                         value={coinInput}
                         onChange={e => setCoinInput(e.target.value)}
-                        placeholder="코인 심볼"
                         className="px-2 py-1 rounded bg-white/10"
-                    />
+                    >
+                        <option value="">코인 선택</option>
+                        {markets.map((m) => (
+                            <option key={m.market} value={m.market}>
+                                {m.market}
+                            </option>
+                        ))}
+                    </select>
                     <input
                         type="number"
                         value={coinAmount}

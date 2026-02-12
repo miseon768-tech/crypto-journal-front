@@ -1,10 +1,17 @@
 import axios from "axios";
+import { getStoredToken } from "./member";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080/api/market";
+    process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080/api/market";
 
-// 모든 마켓(트레이딩 페어) 조회
 export const getAllMarkets = async () => {
-  const res = await axios.get(`${API_BASE}/all`);
-  return res.data;
+    const token = getStoredToken(localStorage.getItem("token"));
+
+    const res = await axios.get(`${API_BASE}/all`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+
+    return res.data;
 };

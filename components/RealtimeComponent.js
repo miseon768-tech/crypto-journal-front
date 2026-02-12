@@ -228,14 +228,6 @@ export default function RealtimeComponent() {
 
             {/* 큰 상태 배너 */}
             <div className="flex items-center gap-4">
-                <div className="p-3 rounded bg-white/5">
-                    <strong>Status:</strong> <span className="ml-2">{status}</span>
-                    {error && <div className="text-red-400 mt-1">{String(error)}</div>}
-                </div>
-                <div className="ml-auto flex items-center gap-2">
-                    <button onClick={() => setConnectKey(k => k + 1)} className="px-3 py-2 bg-blue-600 rounded">Reconnect</button>
-                    <button onClick={() => { setRawMessages([]); setTrades([]); setTickers({}); setOrderbooks({}); setCandles({}); }} className="px-3 py-2 bg-gray-600 rounded">Clear</button>
-                </div>
             </div>
 
             <div className="flex items-center gap-4">
@@ -265,10 +257,6 @@ export default function RealtimeComponent() {
                         Candle
                     </button>
                 </div>
-
-                <div className="ml-auto flex items-center gap-3">
-                    <span className="text-sm text-gray-300">Active: {activeData}</span>
-                </div>
             </div>
 
             {/* 필터 입력 */}
@@ -282,22 +270,8 @@ export default function RealtimeComponent() {
                 <button onClick={() => setSelectedSymbol("")} className="px-3 py-2 rounded bg-white/10">Clear</button>
             </div>
 
-            {/* 디버그: 카운트와 최근 원시 메시지 */}
-            <div className="bg-white/5 p-3 rounded text-xs text-gray-300">
-                <div>Trades: {trades.length} &nbsp; Tickers: {Object.keys(tickers).length} &nbsp; Orderbooks: {Object.keys(orderbooks).length} &nbsp; Candles: {Object.keys(candles).length}</div>
-                <div className="mt-2">최근 원시 메시지:</div>
-                <div className="max-h-40 overflow-auto mt-1">
-                    {rawMessages.map((m, i) => (
-                        <pre key={i} className="whitespace-pre-wrap text-[11px]">{m}</pre>
-                    ))}
-                </div>
-            </div>
-
             {/* 데이터 표시 */}
             <div className="bg-white/10 p-4 rounded-xl min-h-[150px]">
-                {!activeData && <div>버튼을 눌러 데이터를 확인하세요.</div>}
-
-                {activeData === "trade" && trades.length === 0 && <div>체결 데이터가 없습니다.</div>}
                 {activeData === "trade" &&
                     trades
                         .filter(t => !selectedSymbol || String(t.symbol).toUpperCase().includes(String(selectedSymbol).toUpperCase()))
