@@ -2,15 +2,79 @@ const API_HOST = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
 const API_BASE = `${API_HOST.replace(/\/$/, '')}/api/member`;
 
 // ------------------------
-// 토큰 처리
+// 토큰 처리 (강화됨)
 // ------------------------
-export const getStoredToken = () => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("token") || null;
+function _findTokenInObject(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    const keys = ['token', 'accessToken', 'access_token', 'value'];
+    for (const k of keys) {
+        if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k]) return String(obj[k]);
+    }
+    // nested common wrappers
+    for (const k of ['state', 'data', 'payload']) {
+        if (obj[k] && typeof obj[k] === 'object') {
+            const t = _findTokenInObject(obj[k]);
+            if (t) return t;
+        }
+    }
+    // find any jwt-like string among values
+    const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*$/;
+    for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (typeof v === 'string' && jwtRegex.test(v.trim())) return v.trim();
+    }
+    return null;
+}
+
+export const getStoredToken = (incoming) => {
+    let raw = incoming;
+    if (!raw && typeof window !== 'undefined') raw = localStorage.getItem('token');
+    if (!raw) return null;
+
+    // already a string
+    if (typeof raw === 'string') {
+        const s = raw.trim();
+        if (!s) return null;
+        // Bearer prefix
+        if (/^Bearer\s+/i.test(s)) return s.replace(/^Bearer\s+/i, '');
+        // try parse JSON
+        if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('"{') && s.endsWith('}"'))) {
+            try {
+                const parsed = JSON.parse(s);
+                const t = _findTokenInObject(parsed);
+                if (t) return t;
+            } catch (e) {
+                // ignore
+            }
+        }
+        // if looks like jwt
+        const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*$/;
+        if (jwtRegex.test(s)) return s;
+        // fallback: return raw string
+        return s;
+    }
+
+    // non-string (object) -> extract
+    try {
+        const t = _findTokenInObject(raw);
+        if (t) return t;
+    } catch (e) {
+        // ignore
+    }
+
+    try { return String(raw); } catch (e) { return null; }
 };
 
 export const setToken = (token) => {
-    if (typeof window !== "undefined") localStorage.setItem("token", token);
+    if (typeof window !== 'undefined') {
+        if (!token) {
+            localStorage.removeItem('token');
+            return;
+        }
+        // store as plain token string (no Bearer prefix)
+        const t = getStoredToken(token) || String(token);
+        localStorage.setItem('token', t);
+    }
 };
 
 export const removeToken = () => {
@@ -28,10 +92,14 @@ export const login = async (email, password) => {
             body: JSON.stringify({ email, password }),
         });
 
-        if (!res.ok) throw new Error("로그인 실패");
+        if (!res.ok) {
+            const text = await res.text().catch(() => null);
+            const msg = text || "로그인 실패";
+            throw new Error(msg);
+        }
 
         const data = await res.json();
-        const token = data.token || data.accessToken || null;
+        const token = data.token || data.accessToken || data.access_token || null;
         if (token) setToken(token);
 
         return { ...data, token };
@@ -51,7 +119,10 @@ export const signUp = async (data) => {
         body: JSON.stringify(data),
     });
 
-    if (!res.ok) throw new Error("회원가입 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "회원가입 실패");
+    }
     return res.json();
 };
 
@@ -64,7 +135,10 @@ export const sendEmailCode = async (email) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
     });
-    if (!res.ok) throw new Error("이메일 코드 전송 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "이메일 코드 전송 실패");
+    }
     return res.text();
 };
 
@@ -77,7 +151,10 @@ export const verifyEmailCode = async (email, code) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, code }),
     });
-    if (!res.ok) throw new Error("이메일 인증 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "이메일 인증 실패");
+    }
     return res.text();
 };
 
@@ -92,7 +169,10 @@ export const getMyInfo = async (token) => {
         headers: { Authorization: `Bearer ${authToken}` },
     });
 
-    if (!res.ok) throw new Error("내 정보 조회 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "내 정보 조회 실패");
+    }
     return res.json();
 };
 
@@ -110,7 +190,10 @@ export const updateMember = async (token, data) => {
         body: JSON.stringify(data),
     });
 
-    if (!res.ok) throw new Error("정보 수정 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "정보 수정 실패");
+    }
     return res.json();
 };
 
@@ -128,7 +211,10 @@ export const changePassword = async (token, data) => {
         body: JSON.stringify(data),
     });
 
-    if (!res.ok) throw new Error("비밀번호 변경 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "비밀번호 변경 실패");
+    }
     return res.json();
 };
 
@@ -146,6 +232,9 @@ export const deleteMember = async (token, password) => {
         body: JSON.stringify({ password }),
     });
 
-    if (!res.ok) throw new Error("회원 탈퇴 실패");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "회원 탈퇴 실패");
+    }
     return res.json();
 };

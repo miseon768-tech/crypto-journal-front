@@ -44,6 +44,7 @@ export default function Dashboard() {
                 <div
                     onClick={() => {
                         openTab("wallet");
+                        setWalletKey(k => k + 1);
                     }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
@@ -53,6 +54,7 @@ export default function Dashboard() {
                 <div
                     onClick={() => {
                         openTab("realtime");
+                        setRealtimeKey(k => k + 1);
                     }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
@@ -62,6 +64,7 @@ export default function Dashboard() {
                 <div
                     onClick={() => {
                         openTab("community");
+                        setCommunityKey(k => k + 1);
                     }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
