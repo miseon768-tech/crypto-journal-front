@@ -1,8 +1,7 @@
 import axios from "axios";
 import { getStoredToken } from "./member";
 
-const API_HOST =
-    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
+const API_HOST = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
 
 const API_BASE = `${API_HOST}/api/KRWAssets/summary`;
 
@@ -22,28 +21,109 @@ const handleGet = async (url, token, config = {}) => {
         });
         return res.data;
     } catch (err) {
-        console.error(`GET ${url} 실패`, err.response?.status, err.response?.data);
-        throw err;
+        // 좀 더 자세한 로그와 일관된 에러 던지기
+        const status = err.response?.status;
+        const data = err.response?.data;
+        console.error(`GET ${url} 실패`, status, data);
+        // 재사용하기 쉬운 Error 생성
+        const message = (data && (data.message || data.error || JSON.stringify(data))) || err.message || `HTTP ${status}`;
+        const e = new Error(message);
+        e.status = status;
+        e.body = data;
+        throw e;
     }
 };
 
 // ===== Summary API =====
-export const getTotalAssets = (token) => handleGet(`${API_BASE}/total`, token);
+export const getTotalAssets = async (token) => {
+    try {
+        const data = await handleGet(`${API_BASE}/total`, token);
+        // 백엔드 응답은 { totalAssets: number, success: boolean }
+        if (data && typeof data === 'object' && data.totalAssets !== undefined) return data.totalAssets;
+        return typeof data === 'number' ? data : 0;
+    } catch (e) {
+        // 백에서 자산 없음 같은 메시지를 주면 0으로 안전하게 반환
+        const msg = String(e?.message || '').toLowerCase();
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return 0;
+        throw e;
+    }
+};
 
-export const getTotalEvalAmount = (token) =>
-    handleGet(`${API_BASE}/total-eval-amount`, token);
+export const getTotalEvalAmount = async (token) => {
+    try {
+        const data = await handleGet(`${API_BASE}/total-eval-amount`, token);
+        if (data && typeof data === 'object' && data.totalEvalAmount !== undefined) return data.totalEvalAmount;
+        return typeof data === 'number' ? data : 0;
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return 0;
+        throw e;
+    }
+};
 
-export const getTotalProfit = (token) =>
-    handleGet(`${API_BASE}/profit/total`, token);
+export const getTotalProfit = async (token) => {
+    try {
+        const data = await handleGet(`${API_BASE}/profit/total`, token);
+        if (data && typeof data === 'object' && data.totalProfit !== undefined) return data.totalProfit;
+        return typeof data === 'number' ? data : 0;
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        // 백이 "코인 자산 없음" 등으로 응답하면 0으로 처리
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return 0;
+        throw e;
+    }
+};
 
-export const getTotalProfitRate = (token) =>
-    handleGet(`${API_BASE}/profit-rate`, token);
+export const getTotalProfitRate = async (token) => {
+    try {
+        const data = await handleGet(`${API_BASE}/profit-rate`, token);
+        if (data && typeof data === 'object' && data.totalProfitRate !== undefined) return data.totalProfitRate;
+        return typeof data === 'number' ? data : 0;
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return 0;
+        throw e;
+    }
+};
 
-export const getPortfolioAsset = (token) =>
-    handleGet(`${API_BASE}/portfolio`, token);
+export const getPortfolioAsset = async (token) => {
+    try {
+        const data = await handleGet(`${API_BASE}/portfolio`, token);
+        // 백은 { portfolioItemList: [...] , success: true } 형태로 응답할 수 있음
+        if (data && typeof data === 'object') {
+            if (Array.isArray(data)) return data;
+            if (data.portfolioItemList) return data.portfolioItemList;
+            if (data.portfolio) return data.portfolio;
+            if (data.data) return data.data;
+        }
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return [];
+        throw e;
+    }
+};
 
-export const getCoinProfit = (token, market) =>
-    handleGet(`${API_BASE}/profit`, token, { params: { market } });
+export const getCoinProfit = async (token, market) => {
+    try {
+        const data = await handleGet(`${API_BASE}/profit`, token, { params: { market } });
+        if (data && typeof data === 'object' && data.profit !== undefined) return data.profit;
+        return typeof data === 'number' ? data : 0;
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return 0;
+        throw e;
+    }
+};
 
-export const getCoinEvalAmount = (token, market) =>
-    handleGet(`${API_BASE}/eval-amount`, token, { params: { market } });
+export const getCoinEvalAmount = async (token, market) => {
+    try {
+        const data = await handleGet(`${API_BASE}/eval-amount`, token, { params: { market } });
+        if (data && typeof data === 'object' && data.evalAmount !== undefined) return data.evalAmount;
+        return typeof data === 'number' ? data : 0;
+    } catch (e) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (e?.status === 404 || msg.includes('자산 없음') || msg.includes('코인 자산 없음')) return 0;
+        throw e;
+    }
+};

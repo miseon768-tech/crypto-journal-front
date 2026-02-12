@@ -6,9 +6,14 @@ const API_BASE =
 
 // ===== 공통 요청 함수 =====
 const handleRequest = async (method, url, token, data = null, config = {}) => {
-    if (!token) throw new Error("토큰이 없습니다.");
-
+    // try to normalize/extract token from provided value or localStorage
     const t = getStoredToken(token);
+    if (!t) {
+        // If no token available, only allow non-auth GETs; otherwise throw
+        // But for clarity, let request proceed with no Authorization header and let backend respond 401/403.
+        // This avoids frontend throwing before network error and allows caller to handle backend message.
+        // We'll set authHeader only if token exists.
+    }
 
     try {
         const res = await axios({
@@ -17,14 +22,21 @@ const handleRequest = async (method, url, token, data = null, config = {}) => {
             data,
             ...config,
             headers: {
-                Authorization: `Bearer ${t}`,
                 ...(config.headers || {}),
+                ...(t ? { Authorization: `Bearer ${t}` } : {}),
             },
         });
         return res.data;
     } catch (err) {
         console.error(`${method.toUpperCase()} ${url} 실패`, err.response?.status, err.response?.data);
-        throw err;
+        // normalize axios error to throw a clear Error with status where possible
+        const status = err.response?.status;
+        const body = err.response?.data;
+        const message = (body && (body.message || body.error)) || err.message || `HTTP ${status}`;
+        const e = new Error(message);
+        e.status = status;
+        e.body = body;
+        throw e;
     }
 };
 

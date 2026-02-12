@@ -5,12 +5,13 @@ const API_BASE =
     process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080/api/market";
 
 export const getAllMarkets = async () => {
-    const token = getStoredToken(localStorage.getItem("token"));
+    // getStoredToken handles localStorage if needed
+    const token = getStoredToken(localStorage?.getItem?.("token"));
+
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
     const res = await axios.get(`${API_BASE}/all`, {
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
+        headers,
     });
 
     return res.data;
