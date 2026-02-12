@@ -46,11 +46,14 @@ export default function WalletComponent() {
     const [portfolio, setPortfolio] = useState([]);
     const [loading, setLoading] = useState(true);
     const [markets, setMarkets] = useState([]);
-
-    // 등록용 상태
+    const [favorites, setFavorites] = useState([]);
     const [krwInput, setKrwInput] = useState("");
     const [coinInput, setCoinInput] = useState("");
     const [coinAmount, setCoinAmount] = useState("");
+    const [selectedCoin, setSelectedCoin] = useState(""); // 수정할 코인 선택
+    const [newCoinAmount, setNewCoinAmount] = useState(""); // 수정할 금액
+    const [coinSearchResult, setCoinSearchResult] = useState([]); // 검색 결과
+    const [totalBuyAmount, setTotalBuyAmount] = useState(0); // 총 매수금액
 
     const token = typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null;
 
@@ -59,6 +62,8 @@ export default function WalletComponent() {
         fetchWalletData();
         fetchCoins();
         fetchMarkets();
+        fetchFavorites();
+        fetchTotalBuyAmount();
     }, [token]);
 
     // ===== 전체 자산 fetch =====
@@ -103,22 +108,24 @@ export default function WalletComponent() {
         if (!token) return;
         try {
             const coinAssetsRes = await getAssets(token);
-            const coinAssets = Array.isArray(coinAssetsRes) ? coinAssetsRes : []; // 배열인지 확인
+            const coinAssets = Array.isArray(coinAssetsRes) ? coinAssetsRes : [];
 
             const assetPromises = coinAssets.map(async c => {
-                const [evalRes, profitRes] = await Promise.allSettled([
+                const [evalRes, profitRes, buyAmountRes] = await Promise.allSettled([
                     getCoinEvalAmount(token, c.market),
                     getCoinProfit(token, c.market),
+                    getCoinBuyAmount(token, c.market),
                 ]);
 
                 const evalAmount = evalRes.status === "fulfilled" ? evalRes.value : 0;
                 const profit = profitRes.status === "fulfilled" ? profitRes.value : 0;
+                const buyAmount = buyAmountRes.status === "fulfilled" ? buyAmountRes.value : 0;
                 const profitRate = evalAmount ? ((profit / (evalAmount - profit)) * 100).toFixed(2) : '0.00';
 
                 return {
                     tradingPair: c.market,
                     amount: c.amount || 0,
-                    buyAmount: c.buyAmount || 0,
+                    buyAmount,
                     avgPrice: c.avgPrice || 0,
                     evalAmount,
                     profit,
@@ -143,6 +150,28 @@ export default function WalletComponent() {
         }
     };
 
+    // ===== 관심 코인 fetch =====
+    const fetchFavorites = async () => {
+        if (!token) return;
+        try {
+            const data = await getFavoriteCoins(token);
+            setFavorites(Array.isArray(data) ? data : []);
+        } catch (e) {
+            console.error("관심 코인 불러오기 실패:", e);
+        }
+    };
+
+    // ===== 총 매수금액 fetch =====
+    const fetchTotalBuyAmount = async () => {
+        if (!token) return;
+        try {
+            const data = await getTotalCoinBuyAmount(token);
+            setTotalBuyAmount(data.totalBuyAmount || 0);
+        } catch (e) {
+            console.error("총 매수금액 조회 실패:", e);
+        }
+    };
+
     // ===== KRW 등록 =====
     const handleAddKrw = async () => {
         if (!krwInput || isNaN(krwInput)) return alert("금액을 숫자로 입력하세요");
@@ -164,26 +193,107 @@ export default function WalletComponent() {
             setCoinInput("");
             setCoinAmount("");
             fetchCoins();
+            fetchTotalBuyAmount();
         } catch (e) {
             console.error(e);
             alert("코인 등록 실패");
         }
     };
 
+    // ===== 코인 수정 =====
+    const handleUpdateCoin = async () => {
+        if (!selectedCoin || !newCoinAmount || isNaN(newCoinAmount)) return alert("코인과 금액을 정확히 입력하세요");
+        try {
+            await updateAsset(token, { market: selectedCoin, amount: Number(newCoinAmount) });
+            setSelectedCoin("");
+            setNewCoinAmount("");
+            fetchCoins();
+            fetchTotalBuyAmount();
+        } catch (e) {
+            console.error(e);
+            alert("코인 수정 실패");
+        }
+    };
+
+    // ===== 코인 삭제 =====
+    const handleDeleteCoin = async (market) => {
+        if (!market) return;
+        try {
+            await deleteAsset(token, { market });
+            fetchCoins();
+            fetchTotalBuyAmount();
+        } catch (e) {
+            console.error(e);
+            alert("코인 삭제 실패");
+        }
+    };
+
+    // ===== 관심 코인 등록 =====
+    const handleAddFavorite = async (market) => {
+        if (!market) return;
+        try {
+            await addFavoriteCoin({ tradingPairId: market }, token);
+            fetchFavorites();
+        } catch (e) {
+            console.error(e);
+            alert("관심 코인 추가 실패");
+        }
+    };
+
+    // ===== 관심 코인 삭제 =====
+    const handleDeleteFavorite = async (market) => {
+        if (!market) return;
+        try {
+            await deleteFavoriteCoin({ tradingPairId: market }, token);
+            fetchFavorites();
+        } catch (e) {
+            console.error(e);
+            alert("관심 코인 삭제 실패");
+        }
+    };
+
+    // ===== 관심 코인 전체 삭제 =====
+    const handleDeleteAllFavorites = async () => {
+        try {
+            await deleteAllFavoriteCoins(token);
+            setFavorites([]);
+        } catch (e) {
+            console.error(e);
+            alert("전체 관심 코인 삭제 실패");
+        }
+    };
+
+    // ===== 코인 검색 =====
+    const handleSearchCoin = async (params) => {
+        try {
+            let results = [];
+            if (params.tradingPairId) results = [await getAssetByTradingPair(params.tradingPairId, token)];
+            else if (params.market) results = [await getAssetByMarket(params.market, token)];
+            else if (params.koreanName) results = [await getAssetByKorean(params.koreanName, token)];
+            else if (params.englishName) results = [await getAssetByEnglish(params.englishName, token)];
+            else if (params.category) results = await getAssetByCategory({ category: params.category }, token);
+            setCoinSearchResult(results);
+        } catch (e) {
+            console.error(e);
+            alert("코인 검색 실패");
+        }
+    };
+
     return (
         <div className="space-y-6">
             <h2 className="text-xl font-bold mb-2">Wallet</h2>
-
             {/* 탭 버튼 */}
             <div className="flex gap-4 mb-4">
                 <TabButton active={activeTab === "myAssets"} onClick={() => setActiveTab("myAssets")}>보유자산</TabButton>
                 <TabButton active={activeTab === "coins"} onClick={() => setActiveTab("coins")}>보유코인</TabButton>
                 <TabButton active={activeTab === "portfolio"} onClick={() => setActiveTab("portfolio")}>포트폴리오</TabButton>
+                <TabButton active={activeTab === "favorites"} onClick={() => setActiveTab("favorites")}>관심코인</TabButton>
+                <TabButton active={activeTab === "search"} onClick={() => setActiveTab("search")}>코인검색</TabButton>
             </div>
 
             {loading && <div>데이터를 불러오는 중...</div>}
 
-            {!loading && portfolio.length === 0 && assets.length === 0 && (
+            {!loading && portfolio.length === 0 && assets.length === 0 && favorites.length === 0 && (
                 <div className="text-center text-gray-400 mt-10">현재 등록된 자산이 없습니다.</div>
             )}
 
@@ -197,7 +307,6 @@ export default function WalletComponent() {
                                        placeholder="KRW 금액" className="px-2 py-1 rounded bg-white/10" />
                                 <button onClick={handleAddKrw} className="px-3 py-1 bg-indigo-500 rounded">KRW 등록</button>
                             </div>
-
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <Card title="총 보유자산" value={summary.totalAsset} />
                                 <Card title="총 평가금액" value={summary.totalEval} />
@@ -240,6 +349,22 @@ export default function WalletComponent() {
                                 <button onClick={handleAddCoin} className="px-3 py-1 bg-indigo-500 rounded">코인 등록</button>
                             </div>
 
+                            {/* 코인 수정/삭제 */}
+                            <div className="flex gap-2 mb-4">
+                                <select value={selectedCoin} onChange={e => setSelectedCoin(e.target.value)}
+                                        className="px-2 py-1 rounded bg-white/20">
+                                    <option value="">수정할 코인 선택</option>
+                                    {assets.map(c => (
+                                        <option key={c.tradingPair} value={c.tradingPair}>{c.tradingPair}</option>
+                                    ))}
+                                </select>
+                                <input type="number" value={newCoinAmount} onChange={e => setNewCoinAmount(e.target.value)}
+                                       placeholder="새 매수 금액" className="px-2 py-1 rounded bg-white/20" />
+                                <button onClick={handleUpdateCoin} className="px-3 py-1 bg-green-500 rounded">수정</button>
+                                {selectedCoin && <button onClick={() => handleDeleteCoin(selectedCoin)}
+                                                         className="px-3 py-1 bg-red-500 rounded">삭제</button>}
+                            </div>
+
                             {assets.length === 0 && <div className="text-gray-400 text-sm">보유 코인이 없습니다.</div>}
                             {assets.length > 0 && (
                                 <table className="w-full text-sm text-left">
@@ -269,6 +394,53 @@ export default function WalletComponent() {
                                     </tbody>
                                 </table>
                             )}
+                        </div>
+                    )}
+
+                    {/* 관심코인 탭 */}
+                    {activeTab === "favorites" && (
+                        <div className="space-y-2">
+                            {favorites.length === 0 && <div className="text-gray-400 text-sm">관심 코인이 없습니다.</div>}
+                            {favorites.length > 0 && (
+                                <>
+                                    <ul className="space-y-2">
+                                        {favorites.map(f => (
+                                            <li key={f.tradingPair} className="flex justify-between items-center bg-white/10 p-2 rounded">
+                                                <span>{f.tradingPair}</span>
+                                                <button
+                                                    onClick={() => handleDeleteFavorite(f.tradingPair)}
+                                                    className="px-2 py-1 bg-red-500 rounded text-sm"
+                                                >
+                                                    삭제
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <button onClick={handleDeleteAllFavorites} className="px-3 py-1 bg-red-700 rounded mt-2">
+                                        전체 삭제
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 코인검색 탭 */}
+                    {activeTab === "search" && (
+                        <div className="space-y-4">
+                            <div className="flex gap-2 mb-4">
+                                <input type="text" placeholder="트레이딩페어 입력"
+                                       onBlur={e => handleSearchCoin({ tradingPairId: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
+                                <input type="text" placeholder="마켓 입력"
+                                       onBlur={e => handleSearchCoin({ market: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
+                                <input type="text" placeholder="한국어 이름 입력"
+                                       onBlur={e => handleSearchCoin({ koreanName: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
+                                <input type="text" placeholder="영어 이름 입력"
+                                       onBlur={e => handleSearchCoin({ englishName: e.target.value })} className="px-2 py-1 rounded bg-white/10" />
+                            </div>
+                            <div>
+                                <h4>검색 결과</h4>
+                                <pre className="bg-white/10 p-2 rounded">{JSON.stringify(coinSearchResult, null, 2)}</pre>
+                            </div>
                         </div>
                     )}
                 </>

@@ -10,12 +10,17 @@ import {
     unlikePost,
     getMyLikedPosts,
     saveDraft,
-    getDrafts
+    getDrafts,
+    updatePost,
+    getPostLikeCount,
 } from "../api/post";
 
 import {
     addComment,
-    getCommentsByPost
+    updateComment,
+    deleteComment,
+    getCommentsByPost,
+    getCommentsByUser,
 } from "../api/comment";
 
 import { useToken } from "../stores/account-store";
