@@ -1,95 +1,49 @@
-// api/assetPriceStream.js
 import axios from "axios";
 import { getStoredToken } from "./member";
 
-const API_HOST = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
-const API_BASE = `${API_HOST.replace(/\/$/, "")}/api/KRWAssets/summary`;
+const API_HOST =
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
 
-// ===== 토큰 헤더 생성 =====
-const authHeader = (token) => {
+const API_BASE = `${API_HOST}/api/KRWAssets/summary`;
+
+// ===== 공통 GET 함수 =====
+const handleGet = async (url, token, config = {}) => {
+    if (!token) throw new Error("토큰이 없습니다.");
+
     const t = getStoredToken(token);
-    return t ? { Authorization: `Bearer ${t}` } : {};
-};
 
-// ===== 공통 GET =====
-async function handleAxiosGet(url, token, config = {}) {
     try {
-        const headers = { ...(config.headers || {}), ...authHeader(token) };
-        const res = await axios.get(url, { ...config, headers });
+        const res = await axios.get(url, {
+            ...config,
+            headers: {
+                Authorization: `Bearer ${t}`,
+                ...(config.headers || {}),
+            },
+        });
         return res.data;
     } catch (err) {
-        if (err.response) {
-            throw {
-                message: `GET ${url} failed with status ${err.response.status}`,
-                status: err.response.status,
-                body: err.response.data
-            };
-        }
-        throw { message: `GET ${url} failed: ${err.message}` };
-    }
-}
-
-// ===== API 함수 =====
-
-export const getTotalAssets = async (token) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/total`, token);
-        return data?.totalAssets ?? 0;
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? 0 : (() => { throw e })();
+        console.error(`GET ${url} 실패`, err.response?.status, err.response?.data);
+        throw err;
     }
 };
 
-export const getTotalEvalAmount = async (token) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/total-eval-amount`, token);
-        return data?.totalEvalAmount ?? 0;
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? 0 : (() => { throw e })();
-    }
-};
+// ===== Summary API =====
+export const getTotalAssets = (token) => handleGet(`${API_BASE}/total`, token);
 
-export const getTotalProfit = async (token) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/profit/total`, token);
-        return data?.totalProfit ?? 0;
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? 0 : (() => { throw e })();
-    }
-};
+export const getTotalEvalAmount = (token) =>
+    handleGet(`${API_BASE}/total-eval-amount`, token);
 
-export const getTotalProfitRate = async (token) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/profit-rate`, token);
-        return data?.totalProfitRate ?? 0;
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? 0 : (() => { throw e })();
-    }
-};
+export const getTotalProfit = (token) =>
+    handleGet(`${API_BASE}/profit/total`, token);
 
-export const getPortfolioAsset = async (token) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/portfolio`, token);
-        return data?.portfolioItemList ?? [];
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? [] : (() => { throw e })();
-    }
-};
+export const getTotalProfitRate = (token) =>
+    handleGet(`${API_BASE}/profit-rate`, token);
 
-export const getCoinProfit = async (token, market) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/profit`, token, { params: { market } });
-        return data?.profit ?? 0;
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? 0 : (() => { throw e })();
-    }
-};
+export const getPortfolioAsset = (token) =>
+    handleGet(`${API_BASE}/portfolio`, token);
 
-export const getCoinEvalAmount = async (token, market) => {
-    try {
-        const data = await handleAxiosGet(`${API_BASE}/eval-amount`, token, { params: { market } });
-        return data?.evalAmount ?? 0;
-    } catch (e) {
-        return (e.status === 403 || e.status === 404) ? 0 : (() => { throw e })();
-    }
-};
+export const getCoinProfit = (token, market) =>
+    handleGet(`${API_BASE}/profit`, token, { params: { market } });
+
+export const getCoinEvalAmount = (token, market) =>
+    handleGet(`${API_BASE}/eval-amount`, token, { params: { market } });

@@ -167,7 +167,7 @@ export default function WalletComponent() {
                         <option value="">코인 선택</option>
                         {markets.map((m) => (
                             <option key={m.market} value={m.market}>
-                                {m.market}
+                                {m.market}({m.korean_name})
                             </option>
                         ))}
                     </select>

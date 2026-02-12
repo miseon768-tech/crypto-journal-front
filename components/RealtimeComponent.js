@@ -4,262 +4,131 @@ import { useEffect, useRef, useState } from "react";
 import { getStoredToken } from "../api/member";
 
 export default function RealtimeComponent() {
-    // 기본을 ticker로 설정하여 빈 화면을 줄임
-    const [activeData, setActiveData] = useState("ticker"); // 보여줄 데이터 타입
+    const [activeData, setActiveData] = useState("ticker");
     const [trades, setTrades] = useState([]);
     const [tickers, setTickers] = useState({});
     const [orderbooks, setOrderbooks] = useState({});
     const [candles, setCandles] = useState({});
-
-    const [status, setStatus] = useState("disconnected"); // connecting, connected, error
+    const [status, setStatus] = useState("disconnected");
     const [error, setError] = useState(null);
     const [selectedSymbol, setSelectedSymbol] = useState("");
 
-    const [rawMessages, setRawMessages] = useState([]); // 디버그용 원시 메시지
-
     const clientRef = useRef(null);
     const subsRef = useRef([]);
-    const [connectKey, setConnectKey] = useState(0); // 변경 시 useEffect 재실행
 
-    // 연결 상태가 바뀌면 기본 탭 유지
-    useEffect(() => {
-        if (status === "connected" && !activeData) {
-            setActiveData("ticker");
-        }
-    }, [status, activeData]);
+    const displaySymbol = (symbol) => (symbol ? String(symbol).toUpperCase() : symbol);
 
     useEffect(() => {
-        // 환경 변수 또는 기본값
-        const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
-        const possiblePaths = ["/ws"];
-        let usedPath = "/ws";
-
-        setStatus("connecting");
-        setError(null);
-
-        // helper to try connect with a given path
-        const startClient = async (path) => {
-            const wsUrl = `${BACKEND}${path}`;
-            console.log('[Realtime] attempting SockJS connection to', wsUrl);
-
-            // 토큰 확인: 없으면 연결 시도하지 않음
+        const initWebSocket = async () => {
             const token = getStoredToken();
             if (!token) {
-                console.warn('[Realtime] No token found in localStorage. Aborting websocket connect.');
-                setError('로그인이 필요합니다. 다시 로그인해주세요.');
-                setStatus('no-token');
-                throw new Error('토큰 없음');
+                setError("로그인이 필요합니다.");
+                setStatus("no-token");
+                return;
             }
 
-            // 동적 import: SSR 환경에서 오류 방지
-            let ClientModule, SockJSModule;
+            const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
+            let Client, SockJS;
+
             try {
-                const mods = await Promise.all([
-                    import('@stomp/stompjs'),
-                    import('sockjs-client')
-                ]);
-                ClientModule = mods[0];
-                SockJSModule = mods[1];
-            } catch (importErr) {
-                console.error('Realtime: dynamic import failed', importErr);
-                setError('Realtime 클라이언트 로드 실패. 콘솔 확인');
-                setStatus('error');
-                throw importErr;
+                Client = (await import("@stomp/stompjs")).Client;
+                SockJS = (await import("sockjs-client")).default;
+            } catch (e) {
+                console.error("Realtime client import failed", e);
+                setError("Realtime 클라이언트 로드 실패");
+                setStatus("error");
+                return;
             }
 
-            const { Client } = ClientModule;
-            const SockJS = SockJSModule && SockJSModule.default ? SockJSModule.default : SockJSModule;
-
-            const connectHeaders = { Authorization: `Bearer ${token}` };
-            console.log('[Realtime] connectHeaders:', { Authorization: connectHeaders.Authorization ? (connectHeaders.Authorization.substring(0,40) + '...') : null });
-
+            // STOMP Client 생성
             const client = new Client({
-                connectHeaders,
-                webSocketFactory: () => new SockJS(wsUrl, null, { withCredentials: true }),
+                webSocketFactory: () => new SockJS(`${BACKEND}/ws`),
+                connectHeaders: { Authorization: `Bearer ${token}` },
                 reconnectDelay: 5000,
                 heartbeatIncoming: 4000,
                 heartbeatOutgoing: 4000,
-                // debug: (msg) => console.debug('[STOMP DEBUG]', msg)
+                debug: (msg) => console.debug("[STOMP DEBUG]", msg),
             });
 
-            client.onWebSocketOpen = (ws) => {
-                console.log('[Realtime] WebSocket opened', ws && ws.url ? ws.url : 'ws-open');
-            };
-
-            client.onConnect = (frame) => {
-                console.log('[Realtime] STOMP connected', frame && frame.headers ? frame.headers : frame);
-                setStatus('connected');
+            client.onConnect = () => {
+                console.log("[Realtime] STOMP Connected!");
+                setStatus("connected");
                 setError(null);
-
-                // clear previous subscriptions container
-                subsRef.current = subsRef.current || [];
 
                 const subscribeSafe = (destination, handler) => {
                     try {
-                        const sub = client.subscribe(destination, (message) => {
+                        const sub = client.subscribe(destination, (msg) => {
                             try {
-                                setRawMessages((r) => [message.body, ...r].slice(0, 20));
-                                handler(message);
+                                const data = JSON.parse(msg.body);
+                                handler(data);
                             } catch (e) {
-                                console.warn(`[Realtime] message handler parse error for ${destination}`, e);
+                                console.warn(`parse error for ${destination}`, e);
                             }
                         });
-                        console.log(`[Realtime] subscribed to ${destination}`);
                         subsRef.current.push(sub);
                     } catch (e) {
-                        console.warn(`[Realtime] subscribe failed for ${destination}`, e);
+                        console.warn(`subscribe failed for ${destination}`, e);
                     }
                 };
 
-                subscribeSafe('/topic/trade', (message) => {
-                    try {
-                        const data = JSON.parse(message.body);
-                        setTrades((prev) => [data, ...prev].slice(0, 10));
-                    } catch (e) { console.warn('parse trade', e); }
-                });
-
-                subscribeSafe('/topic/ticker', (message) => {
-                    try {
-                        const data = JSON.parse(message.body);
-                        setTickers((prev) => ({ ...prev, [data.symbol]: data.price }));
-                    } catch (e) { console.warn('parse ticker', e); }
-                });
-
-                subscribeSafe('/topic/orderbook', (message) => {
-                    try {
-                        const data = JSON.parse(message.body);
-                        setOrderbooks((prev) => ({ ...prev, [data.symbol]: data }));
-                    } catch (e) { console.warn('parse orderbook', e); }
-                });
-
-                subscribeSafe('/topic/candle', (message) => {
-                    try {
-                        const data = JSON.parse(message.body);
-                        setCandles((prev) => ({ ...prev, [data.symbol]: data }));
-                    } catch (e) { console.warn('parse candle', e); }
-                });
+                subscribeSafe("/topic/trade", (data) => setTrades((prev) => [data, ...prev].slice(0, 10)));
+                subscribeSafe("/topic/ticker", (data) =>
+                    setTickers((prev) => ({ ...prev, [data.symbol]: data.price }))
+                );
+                subscribeSafe("/topic/orderbook", (data) => setOrderbooks((prev) => ({ ...prev, [data.symbol]: data })));
+                subscribeSafe("/topic/candle", (data) => setCandles((prev) => ({ ...prev, [data.symbol]: data })));
             };
 
             client.onStompError = (frame) => {
-                console.error('[Realtime] STOMP error', frame);
-                setError(frame && frame.body ? frame.body : 'STOMP error');
-                setStatus('error');
+                console.error("[Realtime] STOMP Error", frame);
+                setError(frame.body || "STOMP error");
+                setStatus("error");
             };
 
-            client.onWebSocketClose = (evt) => {
-                console.warn('[Realtime] WS closed', evt);
-                setStatus('disconnected');
-            };
-
+            client.onWebSocketClose = () => setStatus("disconnected");
             client.onWebSocketError = (evt) => {
-                console.error('[Realtime] WS error', evt);
+                console.error("[Realtime] WS error", evt);
                 setError(evt);
-                setStatus('error');
+                setStatus("error");
             };
 
-            try {
-                client.activate();
-            } catch (actErr) {
-                console.error('Realtime: client.activate failed', actErr);
-                setError('Realtime 연결 실패: 클라이언트 활성화 오류');
-                setStatus('error');
-                throw actErr;
-            }
-
+            client.activate();
             clientRef.current = client;
-            usedPath = path;
-            return client;
         };
 
-        // try connect sequentially until one succeeds
-        let connected = false;
-        let clientInstance = null;
-        (async () => {
-            for (const p of possiblePaths) {
-                try {
-                    clientInstance = await startClient(p);
-                    // give it a short time to connect
-                    await new Promise((res) => setTimeout(res, 800));
-                    if (clientInstance && clientRef.current && clientRef.current.connected) {
-                        connected = true;
-                        break;
-                    } else {
-                        // deactivate and try next
-                        try { clientInstance.deactivate(); } catch (e) {}
-                    }
-                } catch (e) {
-                    console.warn('ws try failed', p, e);
-                }
-            }
-            if (!connected) {
-                setStatus("error");
-                setError("WebSocket 연결 실패: 모든 경로 시도 완료");
-            }
-        })();
+        initWebSocket();
 
         return () => {
-            // 구독 해제
-            try {
-                subsRef.current.forEach((s) => {
-                    try { s.unsubscribe(); } catch (e) {}
-                });
-                subsRef.current = [];
-            } catch (e) {}
+            subsRef.current.forEach((s) => {
+                try { s.unsubscribe(); } catch {}
+            });
+            subsRef.current = [];
 
-            // 비활성화
-            try {
-                if (clientRef.current) {
-                    clientRef.current.deactivate();
-                }
-            } catch (e) {}
-
+            if (clientRef.current) {
+                try { clientRef.current.deactivate(); } catch {}
+            }
             clientRef.current = null;
         };
-    }, [connectKey]); // connectKey 변경 시 재실행
-
-    const displaySymbol = (symbol) => {
-        if (!symbol) return symbol;
-        return String(symbol).toUpperCase();
-    };
+    }, []);
 
     return (
         <div className="space-y-6 text-white">
             <h2 className="text-2xl font-bold">Realtime Data</h2>
 
-            {/* 큰 상태 배너 */}
-            <div className="flex items-center gap-4">
+            {/* 탭 */}
+            <div className="flex gap-4 mb-4">
+                {["trade", "ticker", "orderbook", "candle"].map((tab) => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveData(tab)}
+                        className={`px-4 py-2 rounded-lg ${activeData === tab ? "bg-indigo-500" : "bg-white/10"}`}
+                    >
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                ))}
             </div>
 
-            <div className="flex items-center gap-4">
-                <div className="flex gap-4 mb-4">
-                    <button
-                        onClick={() => setActiveData("trade")}
-                        className={`px-4 py-2 rounded-lg ${activeData === "trade" ? "bg-indigo-500" : "bg-white/10"}`}
-                    >
-                        Trade
-                    </button>
-                    <button
-                        onClick={() => setActiveData("ticker")}
-                        className={`px-4 py-2 rounded-lg ${activeData === "ticker" ? "bg-indigo-500" : "bg-white/10"}`}
-                    >
-                        Ticker
-                    </button>
-                    <button
-                        onClick={() => setActiveData("orderbook")}
-                        className={`px-4 py-2 rounded-lg ${activeData === "orderbook" ? "bg-indigo-500" : "bg-white/10"}`}
-                    >
-                        Orderbook
-                    </button>
-                    <button
-                        onClick={() => setActiveData("candle")}
-                        className={`px-4 py-2 rounded-lg ${activeData === "candle" ? "bg-indigo-500" : "bg-white/10"}`}
-                    >
-                        Candle
-                    </button>
-                </div>
-            </div>
-
-            {/* 필터 입력 */}
+            {/* 심볼 필터 */}
             <div className="flex items-center gap-2">
                 <input
                     value={selectedSymbol}
@@ -267,35 +136,36 @@ export default function RealtimeComponent() {
                     placeholder="심볼 필터 (예: BTC)"
                     className="px-3 py-2 rounded bg-gray-800"
                 />
-                <button onClick={() => setSelectedSymbol("")} className="px-3 py-2 rounded bg-white/10">Clear</button>
+                <button onClick={() => setSelectedSymbol("")} className="px-3 py-2 rounded bg-white/10">
+                    Clear
+                </button>
             </div>
 
             {/* 데이터 표시 */}
             <div className="bg-white/10 p-4 rounded-xl min-h-[150px]">
                 {activeData === "trade" &&
-                    trades
-                        .filter(t => !selectedSymbol || String(t.symbol).toUpperCase().includes(String(selectedSymbol).toUpperCase()))
+                    trades.filter((t) => !selectedSymbol || displaySymbol(t.symbol).includes(selectedSymbol.toUpperCase()))
                         .map((trade, idx) => (
                             <div key={idx} className="flex justify-between border-b border-white/10 py-1 text-sm">
                                 <span>{displaySymbol(trade.symbol)}</span>
-                                <span>{Number(trade.price).toLocaleString?.() ?? trade.price}원</span>
+                                <span>{Number(trade.price).toLocaleString()}원</span>
                                 <span>{trade.quantity}</span>
                             </div>
                         ))}
 
                 {activeData === "ticker" &&
                     Object.entries(tickers)
-                        .filter(([symbol]) => !selectedSymbol || String(symbol).toUpperCase().includes(String(selectedSymbol).toUpperCase()))
+                        .filter(([symbol]) => !selectedSymbol || symbol.includes(selectedSymbol.toUpperCase()))
                         .map(([symbol, price]) => (
                             <div key={symbol} className="flex justify-between border-b border-white/10 py-1 text-sm">
                                 <span>{displaySymbol(symbol)}</span>
-                                <span>{Number(price).toLocaleString?.() ?? price}원</span>
+                                <span>{Number(price).toLocaleString()}원</span>
                             </div>
                         ))}
 
                 {activeData === "orderbook" &&
                     Object.entries(orderbooks)
-                        .filter(([symbol]) => !selectedSymbol || String(symbol).toUpperCase().includes(String(selectedSymbol).toUpperCase()))
+                        .filter(([symbol]) => !selectedSymbol || symbol.includes(selectedSymbol.toUpperCase()))
                         .map(([symbol, ob]) => (
                             <div key={symbol} className="border-b border-white/10 py-1 text-sm">
                                 <div>{displaySymbol(symbol)}</div>
@@ -306,7 +176,7 @@ export default function RealtimeComponent() {
 
                 {activeData === "candle" &&
                     Object.entries(candles)
-                        .filter(([symbol]) => !selectedSymbol || String(symbol).toUpperCase().includes(String(selectedSymbol).toUpperCase()))
+                        .filter(([symbol]) => !selectedSymbol || symbol.includes(selectedSymbol.toUpperCase()))
                         .map(([symbol, candle]) => (
                             <div key={symbol} className="border-b border-white/10 py-1 text-sm">
                                 <div>{displaySymbol(symbol)}</div>
@@ -316,6 +186,10 @@ export default function RealtimeComponent() {
                                 <div>Low: {candle.low}</div>
                             </div>
                         ))}
+            </div>
+
+            <div className="mt-2 text-sm">
+                Status: {status} {error && `| Error: ${error}`}
             </div>
         </div>
     );
