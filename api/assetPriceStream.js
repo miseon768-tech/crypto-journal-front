@@ -9,23 +9,20 @@ const API_BASE = `${API_HOST}/api/KRWAssets/summary`;
 const handleGet = async (url, token, config = {}) => {
     if (!token) throw new Error("토큰이 없습니다.");
 
-    const t = getStoredToken(token);
-
+    // token 그대로 사용
     try {
         const res = await axios.get(url, {
             ...config,
             headers: {
-                Authorization: `Bearer ${t}`,
+                Authorization: `Bearer ${token}`,
                 ...(config.headers || {}),
             },
         });
         return res.data;
     } catch (err) {
-        // 좀 더 자세한 로그와 일관된 에러 던지기
         const status = err.response?.status;
         const data = err.response?.data;
         console.error(`GET ${url} 실패`, status, data);
-        // 재사용하기 쉬운 Error 생성
         const message = (data && (data.message || data.error || JSON.stringify(data))) || err.message || `HTTP ${status}`;
         const e = new Error(message);
         e.status = status;
