@@ -23,7 +23,10 @@ const handleGet = async (url, token, config = {}) => {
         const status = err.response?.status;
         const data = err.response?.data;
         console.error(`GET ${url} 실패`, status, data);
-        const message = (data && (data.message || data.error || JSON.stringify(data))) || err.message || `HTTP ${status}`;
+        const message =
+            (data?.message ?? data?.error ?? (data ? JSON.stringify(data) : undefined))
+            || err.message
+            || `HTTP ${status}`;
         const e = new Error(message);
         e.status = status;
         e.body = data;

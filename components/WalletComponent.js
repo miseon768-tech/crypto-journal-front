@@ -52,6 +52,7 @@ export default function WalletComponent() {
     const [coinAmount, setCoinAmount] = useState("");
     const [selectedCoin, setSelectedCoin] = useState(""); // 수정할 코인 선택
     const [newCoinAmount, setNewCoinAmount] = useState(""); // 수정할 금액
+    const [searchText, setSearchText] = useState(""); // 통합 검색창
     const [coinSearchResult, setCoinSearchResult] = useState([]); // 검색 결과
     const [searchParams, setSearchParams] = useState({
         tradingPairId: "",
@@ -270,18 +271,38 @@ export default function WalletComponent() {
     };
 
     // ===== 코인 검색 =====
-    const handleSearchCoin = async (params) => {
-        if (!token) return;
+    // 검색 함수
+    const handleSearchCoin = async (text) => {
+        if (!token || !text) return;
+
         try {
-            let results = [];
+            const results = [];
 
-            if (params.tradingPairId) results = [await getAssetByTradingPair(params.tradingPairId, token)];
-            else if (params.market) results = [await getAssetByMarket(params.market, token)];
-            else if (params.koreanName) results = [await getAssetByKorean(params.koreanName, token)];
-            else if (params.englishName) results = [await getAssetByEnglish(params.englishName, token)];
-            else if (params.category) results = await getAssetByCategory({ category: params.category }, token);
+            // 순차적으로 검색
+            try {
+                const r1 = await getAssetByTradingPair(text, token);
+                if (r1) results.push(r1);
+            } catch {}
+            try {
+                const r2 = await getAssetByMarket(text, token);
+                if (r2) results.push(r2);
+            } catch {}
+            try {
+                const r3 = await getAssetByKorean(text, token);
+                if (r3) results.push(r3);
+            } catch {}
+            try {
+                const r4 = await getAssetByEnglish(text, token);
+                if (r4) results.push(r4);
+            } catch {}
 
-            setCoinSearchResult(Array.isArray(results) ? results : [results]);
+            // 중복 제거 (tradingPair 기준)
+            const unique = results.reduce((acc, cur) => {
+                if (!acc.find(item => item.tradingPair === cur.tradingPair)) acc.push(cur);
+                return acc;
+            }, []);
+
+            setCoinSearchResult(unique);
         } catch (e) {
             console.error(e);
             alert("코인 검색 실패");
@@ -408,38 +429,17 @@ export default function WalletComponent() {
                     {/* 관심코인 탭 */}
                     {activeTab === "favorites" && (
                         <div className="space-y-4">
-                            {/* 검색창 */}
+                            {/* 통합 검색창 */}
                             <div className="flex gap-2 mb-4">
                                 <input
                                     type="text"
-                                    placeholder="트레이딩페어"
-                                    value={searchParams.tradingPairId}
-                                    onChange={e => setSearchParams(prev => ({ ...prev, tradingPairId: e.target.value }))}
-                                    className="px-2 py-1 rounded bg-white/10"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="마켓"
-                                    value={searchParams.market}
-                                    onChange={e => setSearchParams(prev => ({ ...prev, market: e.target.value }))}
-                                    className="px-2 py-1 rounded bg-white/10"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="한국어 이름"
-                                    value={searchParams.koreanName}
-                                    onChange={e => setSearchParams(prev => ({ ...prev, koreanName: e.target.value }))}
-                                    className="px-2 py-1 rounded bg-white/10"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="영어 이름"
-                                    value={searchParams.englishName}
-                                    onChange={e => setSearchParams(prev => ({ ...prev, englishName: e.target.value }))}
-                                    className="px-2 py-1 rounded bg-white/10"
+                                    placeholder="코인명, 트레이딩페어, 마켓 등"
+                                    value={searchText}
+                                    onChange={e => setSearchText(e.target.value)}
+                                    className="px-2 py-1 rounded bg-white/10 flex-1"
                                 />
                                 <button
-                                    onClick={() => handleSearchCoin(searchParams)}
+                                    onClick={() => handleSearchCoin(searchText)}
                                     className="px-3 py-1 bg-indigo-500 rounded"
                                 >
                                     검색
