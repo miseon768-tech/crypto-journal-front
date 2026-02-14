@@ -348,8 +348,13 @@ export default function RealtimeComponent() {
                 try {
                     const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080').replace(/\/$/, '');
                     pushDebug('Fallback: fetching market list from backend');
-                    const res = await fetch(`${BACKEND}/api/market/all`, { method: 'GET' });
-                    const json = await res.json().catch(() => null);
+
+                    const token = getStoredToken();
+                    const res = await fetch(`${BACKEND}/api/market/all`, {
+                        method: 'GET',
+                        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                    });                    const json = await res.json().catch(() => null);
+                    
                     pushDebug(`Fallback: market list raw: ${JSON.stringify(json).slice(0,200)}`);
 
                     // try to extract markets array
