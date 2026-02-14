@@ -363,6 +363,7 @@ export default function RealtimeComponent() {
                     else if (json && Array.isArray(json.data)) markets = json.data;
                     else if (json && Array.isArray(json.markets)) markets = json.markets;
                     else if (json && Array.isArray(json.tradingPairs)) markets = json.tradingPairs;
+                    else if (json && Array.isArray(json.trading_pairs)) markets = json.trading_pairs;
 
                     if (!markets || markets.length === 0) {
                         pushDebug('Fallback: no markets found from backend');
