@@ -3,12 +3,15 @@ import { useRouter } from "next/router";
 import WalletComponent from "../../components/WalletComponent";
 import RealtimeComponent from "../../components/RealtimeComponent";
 import CommunityComponent from "../../components/CommunityComponent";
+import {getAllMarkets} from "../../api/tradingPair";
 
 export default function Dashboard() {
     const router = useRouter();
     const queryTab = router.query.tab;
 
     const [activeTab, setActiveTab] = useState(null);
+    const [tradingPairs, setTradingPairs] = useState([]); // API 데이터
+
 
     // 각 컴포넌트 key
     const [walletKey, setWalletKey] = useState(0);
@@ -29,6 +32,20 @@ export default function Dashboard() {
         }
     }, [queryTab]);
 
+    useEffect(() => {
+        const fetchPairs = async () => {
+            try {
+                const data = await getAllMarkets();
+                console.log("마켓 전체 응답:", data);
+
+                setTradingPairs(data?.trading_pairs || []); // 🔥 여기 수정
+            } catch (err) {
+                console.error("Failed to fetch trading pairs:", err);
+            }
+        };
+        fetchPairs();
+    }, []);
+
     const openTab = (tab) => {
         // 내부 상태 변경
         setActiveTab(tab);
@@ -40,32 +57,22 @@ export default function Dashboard() {
         <div className="p-10">
             {/* ===== 카드 선택 영역 ===== */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-6">
-
                 <div
-                    onClick={() => {
-                        openTab("wallet");
-                        setWalletKey(k => k + 1);
-                    }}
+                    onClick={() => { openTab("wallet"); setWalletKey(k => k + 1); }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
                     <h2 className="text-xl font-semibold">Wallet</h2>
                 </div>
 
                 <div
-                    onClick={() => {
-                        openTab("realtime");
-                        setRealtimeKey(k => k + 1);
-                    }}
+                    onClick={() => { openTab("realtime"); setRealtimeKey(k => k + 1); }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
                     <h2 className="text-xl font-semibold">Realtime</h2>
                 </div>
 
                 <div
-                    onClick={() => {
-                        openTab("community");
-                        setCommunityKey(k => k + 1);
-                    }}
+                    onClick={() => { openTab("community"); setCommunityKey(k => k + 1); }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
                     <h2 className="text-xl font-semibold">Community</h2>
@@ -76,17 +83,13 @@ export default function Dashboard() {
             <div className="bg-white/10 p-6 rounded-2xl backdrop-blur-md min-h-[200px]">
                 {!activeTab && <div>카드를 클릭하면 내용이 여기에 표시됩니다.</div>}
 
-                {activeTab === "wallet" && (
-                    <WalletComponent key={walletKey} />
-                )}
+                {activeTab === "wallet" && <WalletComponent key={walletKey} />}
 
-                {activeTab === "realtime" && (
-                    <RealtimeComponent key={realtimeKey} />
-                )}
+                {activeTab === "realtime" &&
+                    <RealtimeComponent key={realtimeKey} trading_pairs={tradingPairs} />
+                }
 
-                {activeTab === "community" && (
-                    <CommunityComponent key={communityKey} />
-                )}
+                {activeTab === "community" && <CommunityComponent key={communityKey} />}
             </div>
         </div>
     );
