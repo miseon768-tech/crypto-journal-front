@@ -1,8 +1,8 @@
 import axios from "axios";
 import { getStoredToken } from "./member";
 
-const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080/api/assets";
+// ✅ 백엔드 경로에 맞춰서 수정!
+const API_BASE = process.env.NEXT_PUBLIC_KRW_API_BASE || "http://localhost:8080/api/assets";
 
 /**
  * 공통 요청 함수
@@ -38,7 +38,6 @@ const handleRequest = async (method, url, token, data = null) => {
     }
 };
 
-
 // =============================
 //        자산 API
 // =============================
@@ -47,45 +46,53 @@ const handleRequest = async (method, url, token, data = null) => {
 export const addAsset = (token, assetData) =>
     handleRequest("post", API_BASE, token, assetData);
 
-
 // 🔹 자산 수정
 export const updateAsset = (token, assetId, assetData) =>
     handleRequest("put", `${API_BASE}/${assetId}`, token, assetData);
-
 
 // 🔹 자산 삭제
 export const deleteAsset = (token, assetId) =>
     handleRequest("delete", `${API_BASE}/${assetId}`, token);
 
-
 // 🔹 자산 조회
 export const getAssets = (token) =>
     handleRequest("get", API_BASE, token);
-
 
 // =============================
 //     주문 가능 금액 API
 // =============================
 
-// 🔥 백엔드가 @RequestBody Long amount 받으므로
-// 반드시 "숫자 단일 JSON" 형태로 보내야 함
+// 🔥 주문 가능 금액 등록/수정
 export const upsertCashBalance = async (token, amount) => {
     const t = getStoredToken(token);
 
-    const res = await axios({
-        method: "post",
-        url: `${API_BASE}/available-order-amount`,
-        data: Number(amount), // 🔥 객체로 감싸지 않음
-        headers: {
-            "Content-Type": "application/json",
-            ...(t ? { Authorization: `Bearer ${t}` } : {}),
-        },
-    });
+    try {
+        const res = await axios({
+            method: "post",
+            url: `${API_BASE}/available-order-amount`,
+            data: Number(amount),
+            headers: {
+                "Content-Type": "application/json",
+                ...(t ? { Authorization: `Bearer ${t}` } : {}),
+            },
+        });
 
-    return res.data;
+        console.log("✅ upsertCashBalance 성공:", res.data);
+        return res.data;
+    } catch (err) {
+        console.error("❌ upsertCashBalance 실패:", err.response?.data || err);
+        throw err;
+    }
 };
 
-
 // 🔹 주문 가능 금액 조회
-export const getCashBalance = (token) =>
-    handleRequest("get", `${API_BASE}/available-order-amount`, token);
+export const getCashBalance = async (token) => {
+    try {
+        const result = await handleRequest("get", `${API_BASE}/available-order-amount`, token);
+        console.log("✅ getCashBalance 성공:", result);
+        return result;
+    } catch (err) {
+        console.error("❌ getCashBalance 실패:", err);
+        throw err;
+    }
+};
