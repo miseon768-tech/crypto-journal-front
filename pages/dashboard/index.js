@@ -61,21 +61,21 @@ export default function Dashboard() {
                     onClick={() => { openTab("wallet"); setWalletKey(k => k + 1); }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
-                    <h2 className="text-xl font-semibold">Wallet</h2>
+                    <h2 className="text-xl font-semibold">자산(Wallet)</h2>
                 </div>
 
                 <div
                     onClick={() => { openTab("realtime"); setRealtimeKey(k => k + 1); }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
-                    <h2 className="text-xl font-semibold">Realtime</h2>
+                    <h2 className="text-xl font-semibold">실시간 시세(Realtime)</h2>
                 </div>
 
                 <div
                     onClick={() => { openTab("community"); setCommunityKey(k => k + 1); }}
                     className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl shadow-xl hover:scale-105 transition cursor-pointer flex items-center justify-center"
                 >
-                    <h2 className="text-xl font-semibold">Community</h2>
+                    <h2 className="text-xl font-semibold">커뮤니티(community)</h2>
                 </div>
             </div>
 
