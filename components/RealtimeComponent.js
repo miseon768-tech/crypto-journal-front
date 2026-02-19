@@ -145,18 +145,28 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
     // ---------------- UI ----------------
     const gridClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4";
 
+    const tabs = [
+        { label: "체결", value: "trade" },
+        { label: "현재가", value: "ticker" },
+        { label: "호가", value: "orderbook" },
+        { label: "캔들", value: "candle" }
+    ];
+
     return (
         <div className="space-y-6 text-white p-4">
-            <h2 className="text-2xl font-bold">Realtime Data</h2>
+            <h2 className="text-2xl font-bold">실시간 데이터(Realtime Data)</h2>
 
             {/* 탭 */}
             <div className="flex gap-4 mb-4">
-                {['trade', 'ticker', 'orderbook', 'candle'].map((tab) => (
+                {tabs.map((tab) => (
                     <button
-                        key={tab}
-                        onClick={() => setActiveData(tab)}
-                        className={`px-4 py-2 rounded-lg ${activeData === tab ? "bg-indigo-500" : "bg-white/10"}`}>
-                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        key={tab.value}
+                        onClick={() => setActiveData(tab.value)}
+                        className={`px-4 py-2 rounded-lg ${
+                            activeData === tab.value ? "bg-indigo-500" : "bg-white/10"
+                        }`}
+                    >
+                        {tab.label}
                     </button>
                 ))}
             </div>
