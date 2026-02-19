@@ -24,7 +24,7 @@ function extractTokenFromObject(obj) {
     }
 
     // 마지막으로, 문자열 속성 중 JWT 형식(헤더.페이로드.서명)을 만족하는 값이 있으면 반환
-    const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*$/;
+    const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+\/=]*$/;
     for (const k of Object.keys(obj)) {
         const v = obj[k];
         if (typeof v === 'string') {
@@ -52,7 +52,7 @@ function normalizeTokenInput(newToken) {
             }
         }
         // 문자열 자체가 JWT 형식이면 반환
-        const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*$/;
+        const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+\/=]*$/;
         if (jwtRegex.test(t)) return t;
         return t;
     }
@@ -82,13 +82,25 @@ export const useAccount = create(
 
 export const useToken = create(
     persist(
-        (set) => ({
+        (set, get) => ({
             token: null,
             setToken: (newToken) => {
+                // 항상 정규화된 문자열을 상태와 localStorage에 저장
                 const normalized = normalizeTokenInput(newToken);
                 set({ token: normalized });
+                try {
+                    if (typeof window !== 'undefined') {
+                        if (!normalized) localStorage.removeItem('token');
+                        else localStorage.setItem('token', normalized);
+                    }
+                } catch (e) {
+                    // ignore storage errors
+                }
             },
-            clearToken: () => set({ token: null }),
+            clearToken: () => {
+                set({ token: null });
+                try { if (typeof window !== 'undefined') localStorage.removeItem('token'); } catch (e) {}
+            },
         }),
         {
             name: "token",
@@ -98,8 +110,8 @@ export const useToken = create(
                     if (state && state.token) {
                         const normalized = normalizeTokenInput(state.token);
                         if (normalized && normalized !== state.token) {
-                            // set via zustand set function: we can't access set here, so mutate state token directly
                             state.token = normalized;
+                            try { if (typeof window !== 'undefined') localStorage.setItem('token', normalized); } catch (e) {}
                         }
                     }
                 } catch (e) {

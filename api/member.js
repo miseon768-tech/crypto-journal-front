@@ -16,7 +16,7 @@ function _findTokenInObject(obj) {
             if (t) return t;
         }
     }
-    const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*$/;
+    const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+\/=]*$/;
     for (const k of Object.keys(obj)) {
         const v = obj[k];
         if (typeof v === 'string' && jwtRegex.test(v.trim())) return v.trim();
@@ -40,8 +40,9 @@ export const getStoredToken = (incoming) => {
                 if (t) return t;
             } catch (e) {}
         }
-        const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*$/;
+        const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+\/=]*$/;
         if (jwtRegex.test(s)) return s;
+        // 마지막으로 문자열이지만 JWT가 아닐 경우 그대로 반환(디버그용)
         return s;
     }
 
@@ -69,7 +70,12 @@ export const removeToken = () => {
 // ------------------------
 const authFetch = async (url, options = {}) => {
     const token = options.token || getStoredToken();
-    if (!token) throw new Error("토큰이 없습니다.");
+    if (!token) {
+        // 더 명확한 에러 객체를 만들어 호출자에서 처리하기 쉽게 함
+        const e = new Error('토큰이 없습니다. 로그인 후 토큰을 저장하세요.');
+        e.status = 401;
+        throw e;
+    }
     const res = await fetch(url, {
         ...options,
         headers: {
@@ -78,6 +84,17 @@ const authFetch = async (url, options = {}) => {
             ...(options.headers || {})
         },
     });
+
+    // 디버그: non-ok 시 응답 본문과 상태를 포함한 에러 객체 반환
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        const err = new Error(text || `HTTP ${res.status}`);
+        err.status = res.status;
+        err.body = text;
+        console.error('[api/member] authFetch non-ok response', { url, status: res.status, body: text });
+        throw err;
+    }
+
     return res;
 };
 
