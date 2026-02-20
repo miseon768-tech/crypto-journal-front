@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { getStoredToken } from "../api/member";
+import {useEffect, useMemo, useRef, useState} from "react";
+import {getStoredToken} from "../api/member";
+import CandleChart from "./CandleChart";
 
-export default function RealtimeComponent({ trading_pairs = [] }) {
+export default function RealtimeComponent({trading_pairs = []}) {
     const [activeData, setActiveData] = useState("ticker");
+
+    // ✅ 체결은 50개까지 쌓고, 화면은 10개씩 페이��
     const [trades, setTrades] = useState([]);
+    const [tradePage, setTradePage] = useState(1);
+    const TRADE_PAGE_SIZE = 10;
+
     const [tickers, setTickers] = useState({});
     const [orderbooks, setOrderbooks] = useState({});
-    const [candles, setCandles] = useState({});
+    const [candles, setCandles] = useState({}); // marketKey -> CandlePoint[]
+    const [selectedMarket, setSelectedMarket] = useState("");
     const [selectedChoseong, setSelectedChoseong] = useState("");
 
     const clientRef = useRef(null);
@@ -16,16 +23,14 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
     const subscribedDestRef = useRef(new Set());
 
     const tabs = [
-        { key: "trade", label: "체결 (Trade)" },
-        { key: "ticker", label: "현재가 (Ticker)" },
-        { key: "orderbook", label: "호가 (Orderbook)" },
-        { key: "candle", label: "캔들 (Candle)" },
+        {key: "trade", label: "체결 (Trade)"},
+        {key: "ticker", label: "현재가 (Ticker)"},
+        {key: "orderbook", label: "호가 (Orderbook)"},
+        {key: "candle", label: "캔들 (Candle)"},
     ];
 
-    // ✅ 버튼에 보여줄 것(14개: 쌍자음 제외)
     const CHOSEONG_BUTTONS = ["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ", "ㅂ", "ㅅ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
 
-    // ✅ 초성 ���산용(19개: 쌍자음 포함) — 이게 핵심
     const CHOSEONG_FOR_INDEX = [
         "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ",
         "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
@@ -57,17 +62,13 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
 
     const displaySymbol = (codeOrMarket) => {
         if (!codeOrMarket) return "";
-
         const marketKey = normalizeToMarketKey(codeOrMarket);
         const tp = tradingPairMap[marketKey];
-
         const pureSymbol = marketKey.includes("-") ? marketKey.split("-")[1] : marketKey;
         if (!tp) return pureSymbol;
-
         return `${tp.korean_name}(${pureSymbol})`;
     };
 
-    // ✅ 한글 이름 첫 글자 -> 초성 리턴 (19개 리스트 기준)
     const getChoseongFromKoreanName = (koreanName) => {
         if (!koreanName) return "";
         const firstChar = String(koreanName).trim()[0];
@@ -80,8 +81,6 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
         return CHOSEONG_FOR_INDEX[index] ?? "";
     };
 
-    // ✅ 필터 버튼이 14개��서(ㄲ ㄸ ㅃ ㅆ ㅉ 없음),
-    //    계산 결과가 쌍자음이면 기본자음으로 눌러서 보이게 "합치기"
     const collapseDoubleChoseong = (ch) => {
         if (ch === "ㄲ") return "ㄱ";
         if (ch === "ㄸ") return "ㄷ";
@@ -115,6 +114,23 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
         return out;
     };
 
+    const candleMarketOptions = useMemo(() => {
+        return Object.keys(candles).filter((marketKey) => matchChoseong(marketKey, selectedChoseong));
+    }, [candles, selectedChoseong]);
+
+    useEffect(() => {
+        if (!candleMarketOptions.length) return;
+
+        if (!selectedMarket || !candleMarketOptions.includes(selectedMarket)) {
+            setSelectedMarket(candleMarketOptions[0]);
+        }
+    }, [candleMarketOptions, selectedMarket]);
+
+    // ✅ 초성 바뀌면 trade 페이징 1페이지로
+    useEffect(() => {
+        setTradePage(1);
+    }, [selectedChoseong]);
+
     useEffect(() => {
         const initWebSocket = async () => {
             const token = getStoredToken();
@@ -132,7 +148,7 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
 
             const client = new Client({
                 webSocketFactory: () => new SockJS(sockUrl),
-                connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+                connectHeaders: token ? {Authorization: `Bearer ${token}`} : {},
                 reconnectDelay: 5000,
                 heartbeatIncoming: 4000,
                 heartbeatOutgoing: 4000,
@@ -156,34 +172,56 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
 
                 subscribeSafe("/topic/trade", (data) => {
                     const marketKey = normalizeToMarketKey(data.market);
-                    const trade = { symbol: marketKey, price: data.tradePrice, quantity: data.tradeVolume };
-                    setTrades((prev) => [trade, ...prev].slice(0, 50));
+                    const trade = {symbol: marketKey, price: data.tradePrice, quantity: data.tradeVolume};
+                    setTrades((prev) => [trade, ...prev].slice(0, 50)); // ✅ 50개까지 누적
                 });
 
                 subscribeSafe("/topic/ticker", (data) => {
                     const marketKey = normalizeToMarketKey(data.code);
-                    setTickers((prev) => ({ ...prev, [marketKey]: data.tradePrice }));
+                    setTickers((prev) => ({...prev, [marketKey]: data.tradePrice}));
                 });
 
                 subscribeSafe("/topic/orderbook", (data) => {
                     const marketKey = normalizeToMarketKey(data.code);
                     setOrderbooks((prev) => ({
                         ...prev,
-                        [marketKey]: { bid: data.totalBidSize, ask: data.totalAskSize },
+                        [marketKey]: {bid: data.totalBidSize, ask: data.totalAskSize},
                     }));
                 });
 
                 subscribeSafe("/topic/candle", (data) => {
                     const marketKey = normalizeToMarketKey(data.market);
-                    setCandles((prev) => ({
-                        ...prev,
-                        [marketKey]: {
-                            open: data.openingPrice,
-                            close: data.tradePrice,
-                            high: data.highPrice,
-                            low: data.lowPrice,
-                        },
-                    }));
+
+                    const point = {
+                        time: Math.floor(Number(data.timestamp) / 1000),
+                        open: data.openingPrice,
+                        high: data.highPrice,
+                        low: data.lowPrice,
+                        close: data.tradePrice,
+                    };
+
+                    setCandles((prev) => {
+                        const prevArr = prev[marketKey] || [];
+
+                        const last = prevArr[prevArr.length - 1];
+                        let nextArr;
+                        if (last && last.time === point.time) {
+                            nextArr = [...prevArr];
+                            nextArr[nextArr.length - 1] = point;
+                        } else {
+                            nextArr = [...prevArr, point];
+                        }
+
+                        const dedup = new Map();
+                        for (const p of nextArr) dedup.set(p.time, p);
+                        nextArr = Array.from(dedup.values())
+                            .sort((a, b) => a.time - b.time)
+                            .slice(-200);
+
+                        return {...prev, [marketKey]: nextArr};
+                    });
+
+                    setSelectedMarket((m) => m || marketKey);
                 });
             };
 
@@ -197,20 +235,47 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
             subsRef.current.forEach((s) => {
                 try {
                     s.unsubscribe();
-                } catch {}
+                } catch {
+                }
             });
-            if (clientRef.current) try { clientRef.current.deactivate(); } catch {}
+            if (clientRef.current) {
+                try {
+                    clientRef.current.deactivate();
+                } catch {
+                }
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const gridClass = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4";
 
+    // ✅ trade 페이지 계산(렌더에서 재사용)
+    const filteredTrades = useMemo(() => {
+        return trades.filter((t) => matchChoseong(t.symbol, selectedChoseong));
+    }, [trades, selectedChoseong]);
+
+    const totalTradePages = Math.max(1, Math.ceil(filteredTrades.length / TRADE_PAGE_SIZE));
+    const safeTradePage = Math.min(tradePage, totalTradePages);
+    const tradeStart = (safeTradePage - 1) * TRADE_PAGE_SIZE;
+    const tradePageItems = filteredTrades.slice(tradeStart, tradeStart + TRADE_PAGE_SIZE);
+
     return (
         <div className="space-y-6 text-white p-4">
             <h2 className="text-2xl font-bold">실시간 데이터(Realtime Data)</h2>
 
-            {/* ✅ ㄱ~ㅎ 초성 필터 버튼 */}
+            <div className="flex gap-4 mb-4">
+                {tabs.map((tab) => (
+                    <button
+                        key={tab.key}
+                        onClick={() => setActiveData(tab.key)}
+                        className={`px-4 py-2 rounded-lg ${activeData === tab.key ? "bg-indigo-500" : "bg-white/10"}`}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
             <div className="flex flex-wrap gap-2">
                 <button
                     onClick={() => setSelectedChoseong("")}
@@ -230,30 +295,63 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
                 ))}
             </div>
 
-            {/* ✅ 탭 */}
-            <div className="flex gap-4 mb-4">
-                {tabs.map((tab) => (
-                    <button
-                        key={tab.key}
-                        onClick={() => setActiveData(tab.key)}
-                        className={`px-4 py-2 rounded-lg ${activeData === tab.key ? "bg-indigo-500" : "bg-white/10"}`}
-                    >
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
-
             <div className={gridClass}>
-                {activeData === "trade" &&
-                    trades
-                        .filter((t) => matchChoseong(t.symbol, selectedChoseong))
-                        .map((trade, idx) => (
-                            <div key={`${trade.symbol}-${idx}`} className="bg-gray-900 p-3 rounded-lg flex flex-col items-center">
-                                <span className="font-bold">{displaySymbol(trade.symbol)}</span>
-                                <span className="text-green-400">{Number(trade.price).toLocaleString()}원</span>
-                                <span className="text-sm">Qty: {trade.quantity}</span>
+                {activeData === "trade" && (
+                    <div className="md:col-span-4 bg-gray-900 p-3 rounded-lg">
+                        <div className="flex items-center mb-2">
+                            {/* 왼쪽 빈 공간(밀어내기용) */}
+                            <div className="flex-1" />
+
+                            {/* 오른쪽 페이징 */}
+                            <div className="flex items-center gap-2 text-sm">
+                                <button
+                                    className="px-2 py-1 rounded bg-white/10 disabled:opacity-40"
+                                    onClick={() => setTradePage((p) => Math.max(1, p - 1))}
+                                    disabled={safeTradePage <= 1}
+                                >
+                                    이전
+                                </button>
+
+                                <span className="text-white/70 tabular-nums">
+          {safeTradePage} / {totalTradePages}
+        </span>
+
+                                <button
+                                    className="px-2 py-1 rounded bg-white/10 disabled:opacity-40"
+                                    onClick={() => setTradePage((p) => Math.min(totalTradePages, p + 1))}
+                                    disabled={safeTradePage >= totalTradePages}
+                                >
+                                    다음
+                                </button>
                             </div>
-                        ))}
+                        </div>
+
+                        {tradePageItems.length === 0 ? (
+                            <div className="text-white/50 text-sm">체결 데이터가 없습니다.</div>
+                        ) : (
+                            <div className="space-y-1 text-sm">
+                                {tradePageItems.map((trade, idx) => (
+                                    <div
+                                        key={`${trade.symbol}-${tradeStart + idx}`}
+                                        className="flex items-center justify-between border-b border-white/10 py-1"
+                                    >
+                                        <div className="min-w-0">
+                                            <span className="font-semibold">{displaySymbol(trade.symbol)}</span>
+                                            <span className="text-white/60 ml-2">{trade.symbol}</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-4">
+              <span className="text-green-400 tabular-nums">
+                {Number(trade.price).toLocaleString()}원
+              </span>
+                                            <span className="text-white/70 tabular-nums">수량: {trade.quantity}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {activeData === "ticker" &&
                     Object.entries(tickers)
@@ -271,24 +369,34 @@ export default function RealtimeComponent({ trading_pairs = [] }) {
                         .map(([marketKey, ob]) => (
                             <div key={marketKey} className="bg-gray-900 p-3 rounded-lg flex flex-col items-center">
                                 <span className="font-bold">{displaySymbol(marketKey)}</span>
-                                <span className="text-green-400">
-                                    Bid: {ob?.bid ? Number(ob.bid).toLocaleString() : "-"}
-                                </span>
-                                <span className="text-red-400">
-                                    Ask: {ob?.ask ? Number(ob.ask).toLocaleString() : "-"}
-                                </span>
+                                <span
+                                    className="text-green-400">매수: {ob?.bid ? Number(ob.bid).toLocaleString() : "-"}</span>
+                                <span
+                                    className="text-red-400">매도: {ob?.ask ? Number(ob.ask).toLocaleString() : "-"}</span>
                             </div>
                         ))}
 
-                {activeData === "candle" &&
-                    Object.entries(candles)
-                        .filter(([marketKey]) => matchChoseong(marketKey, selectedChoseong))
-                        .map(([marketKey, candle]) => (
-                            <div key={marketKey} className="bg-gray-900 p-3 rounded-lg flex flex-col items-center">
-                                <span className="font-bold mb-1">{displaySymbol(marketKey)}</span>
-                                <span className="text-sm mt-1">{candle.close}</span>
-                            </div>
-                        ))}
+                {activeData === "candle" && (
+                    <div className="md:col-span-4 bg-gray-900 p-3 rounded-lg">
+                        <div className="flex items-center gap-2 mb-3">
+                            <span className="font-bold">캔들</span>
+
+                            <select
+                                value={selectedMarket}
+                                onChange={(e) => setSelectedMarket(e.target.value)}
+                                className="bg-white/10 rounded px-2 py-1"
+                            >
+                                {candleMarketOptions.map((marketKey) => (
+                                    <option key={marketKey} value={marketKey}>
+                                        {displaySymbol(marketKey)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <CandleChart data={candles[selectedMarket] || []}/>
+                    </div>
+                )}
             </div>
         </div>
     );

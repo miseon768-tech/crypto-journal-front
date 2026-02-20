@@ -45,7 +45,7 @@ export default function WalletComponent() {
     // ✅ 보유자산 탭 요약
     const [summary, setSummary] = useState({
         totalAsset: 0,      // 총 보유자산
-        totalEval: 0,       // 총 평���
+        totalEval: 0,       // 총 평가
         totalProfit: 0,     // 평가손익
         profitRate: 0,      // 수익률
         cashBalance: 0,     // 보유KRW(=주문가능)
@@ -284,8 +284,6 @@ export default function WalletComponent() {
             return alert("코인과 매수금액(0보다 큰 값)을 정확히 입력하세요");
         }
         try {
-            // ⚠️ upsertCoinBuyAmount 함수 시그니처가 다를 수 있어요.
-            // 여기서는 (token, market, amount) 형태를 가정했습니다.
             await upsertCoinBuyAmount(token, buyAmountMarket, Number(buyAmountInput));
 
             setBuyAmountMarket("");
@@ -346,19 +344,19 @@ export default function WalletComponent() {
             try {
                 const r1 = await getAssetByTradingPair(text, token);
                 if (r1) results.push(r1);
-            } catch {}
+            } catch { }
             try {
                 const r2 = await getAssetByMarket(text, token);
                 if (r2) results.push(r2);
-            } catch {}
+            } catch { }
             try {
                 const r3 = await getAssetByKorean(text, token);
                 if (r3) results.push(r3);
-            } catch {}
+            } catch { }
             try {
                 const r4 = await getAssetByEnglish(text, token);
                 if (r4) results.push(r4);
-            } catch {}
+            } catch { }
 
             const unique = results.reduce((acc, cur) => {
                 if (!acc.find((item) => item.tradingPair === cur.tradingPair)) acc.push(cur);
@@ -368,7 +366,7 @@ export default function WalletComponent() {
             setCoinSearchResult(unique);
         } catch (e) {
             console.error(e);
-            alert("��인 검색 실패");
+            alert("코인 검색 실패");
         }
     };
 
