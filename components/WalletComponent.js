@@ -48,7 +48,7 @@ export default function WalletComponent() {
     const [krwInput, setKrwInput] = useState("");
 
     // 등록 폼
-    const [coinInput, setCoinInput] = useState("");
+    const [coinInput, setCoinInput] = useState(""); // ✅ 선택된 market (예: KRW-BTC)
     const [coinBalanceInput, setCoinBalanceInput] = useState("");
     const [coinAvgPriceInput, setCoinAvgPriceInput] = useState("");
 
@@ -217,7 +217,14 @@ export default function WalletComponent() {
     const fetchMarkets = async () => {
         try {
             const data = await getAllMarkets();
-            setMarkets(data.tradingPairs || data.trading_pairs || []);
+            const all = data.tradingPairs || data.trading_pairs || [];
+
+            // ✅ "어차피 다 KRW" => KRW- 마켓만 노출
+            const onlyKrw = all.filter((m) =>
+                String(m.market || "").toUpperCase().startsWith("KRW-")
+            );
+
+            setMarkets(onlyKrw);
         } catch (e) {
             console.error("마켓 불러오기 실패:", e);
         }
@@ -252,14 +259,16 @@ export default function WalletComponent() {
         if (!coinInput || coinBalanceInput === "" || isNaN(coinBalanceInput)) {
             return alert("코인과 보유수량을 정확히 입력하세요");
         }
-        if (Number(coinBalanceInput) < 0) return alert("보유수량은 0 이상이어야 합니다.");
+        if (Number(coinBalanceInput) < 0)
+            return alert("보유수량은 0 이상이어야 합니다.");
 
         try {
             await createCoinAsset(
                 {
-                    market: coinInput.toUpperCase(),
+                    market: coinInput.toUpperCase(), // ✅ 예: KRW-BTC
                     coinBalance: Number(coinBalanceInput),
-                    avgBuyPrice: coinAvgPriceInput === "" ? null : Number(coinAvgPriceInput),
+                    avgBuyPrice:
+                        coinAvgPriceInput === "" ? null : Number(coinAvgPriceInput),
                     buyAmount: null,
                 },
                 token
@@ -310,12 +319,9 @@ export default function WalletComponent() {
         if (!selectedMarket) return;
 
         // 숫자 검증(빈 값은 "수정 안 함"으로 처리하고 싶으면 null로)
-        const coinBalance =
-            editCoinBalance === "" ? null : Number(editCoinBalance);
-        const avgBuyPrice =
-            editAvgBuyPrice === "" ? null : Number(editAvgBuyPrice);
-        const buyAmount =
-            editBuyAmount === "" ? null : Number(editBuyAmount);
+        const coinBalance = editCoinBalance === "" ? null : Number(editCoinBalance);
+        const avgBuyPrice = editAvgBuyPrice === "" ? null : Number(editAvgBuyPrice);
+        const buyAmount = editBuyAmount === "" ? null : Number(editBuyAmount);
 
         if (coinBalance !== null && Number.isNaN(coinBalance)) return alert("보유수량이 숫자가 아닙니다");
         if (avgBuyPrice !== null && Number.isNaN(avgBuyPrice)) return alert("평단이 숫자가 아닙니다");
@@ -328,7 +334,7 @@ export default function WalletComponent() {
                     market: selectedMarket,
                     coinBalance,
                     avgBuyPrice,
-                    buyAmount: null, // buyAmount는 아래 별도 API로 저장(백엔드 설계가 분리돼 있으니까)
+                    buyAmount: null, // buyAmount는 아래 별도 API로 저장
                 },
                 token
             );
@@ -366,7 +372,11 @@ export default function WalletComponent() {
     const filteredAssets = useMemo(() => {
         const q = coinFilter.trim().toUpperCase();
         if (!q) return assets;
-        return assets.filter((a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q));
+        return assets.filter(
+            (a) =>
+                a.market?.toUpperCase().includes(q) ||
+                a.coinSymbol?.toUpperCase().includes(q)
+        );
     }, [assets, coinFilter]);
 
     return (
@@ -462,31 +472,17 @@ export default function WalletComponent() {
 
                 {!loading && activeTab === "coins" && (
                     <div className="space-y-4">
-                        {/* ✅ 상단: 검색 + 등록 폼을 분리해서 더 깔끔하게 */}
                         <section className="rounded-2xl bg-white/5 p-5 border border-white/5 space-y-4">
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                <div className="text-sm font-semibold">보유코인</div>
-                                <input
-                                    value={coinFilter}
-                                    onChange={(e) => setCoinFilter(e.target.value)}
-                                    placeholder="코인 검색 (예: BTC, KRW-BTC)"
-                                    className="w-full md:w-72 px-3 py-2 rounded bg-white/10"
-                                />
-                            </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_180px_140px] gap-2">
-                                <select
+                                {/* 최신 반영: 긴 select -> 검색 콤보박스 ("비트코인(BTC)" + BTC 입력시 자동) */}
+                                <MarketCombobox
+                                    markets={markets}
                                     value={coinInput}
-                                    onChange={(e) => setCoinInput(e.target.value)}
-                                    className="px-3 py-2 rounded bg-white/10"
-                                >
-                                    <option value="">코인 선택</option>
-                                    {markets.map((m) => (
-                                        <option key={m.market} value={m.market}>
-                                            {m.market}({m.korean_name})
-                                        </option>
-                                    ))}
-                                </select>
+                                    onChange={(m) => setCoinInput(m)} // m = KRW-BTC
+                                    placeholder="코인 검색 (예: 비트코인, BTC)"
+                                    limit={12}
+                                />
 
                                 <input
                                     type="number"
@@ -509,12 +505,9 @@ export default function WalletComponent() {
                                 </button>
                             </div>
 
-                            <div className="text-xs text-white/50">
-                                코인을 눌러서 상세보기/수정/삭제/매수금액을 한 화면에서 처리할 수 있어요.
-                            </div>
+
                         </section>
 
-                        {/* ✅ 리스트: "카드" 대신 테이블 느낌의 row로 (더 정보 밀도 높고 깔끔) */}
                         <section className="rounded-2xl bg-white/5 border border-white/5 overflow-hidden">
                             <div className="px-5 py-3 border-b border-white/10 text-xs text-white/60 grid grid-cols-[1.2fr_1fr_1fr_1fr_80px]">
                                 <div>코인</div>
@@ -563,7 +556,6 @@ export default function WalletComponent() {
                             )}
                         </section>
 
-                        {/* ✅ 상세/수정 Drawer */}
                         <CoinDetailDrawer
                             open={drawerOpen}
                             market={selectedMarket}
@@ -655,14 +647,8 @@ function CoinDetailDrawer({
 
     return (
         <div className="fixed inset-0 z-50">
-            {/* backdrop */}
-            <button
-                className="absolute inset-0 bg-black/60"
-                onClick={onClose}
-                aria-label="close"
-            />
+            <button className="absolute inset-0 bg-black/60" onClick={onClose} aria-label="close" />
 
-            {/* panel */}
             <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-[#0b0f1a] border-l border-white/10 p-5 overflow-y-auto">
                 <div className="flex items-start justify-between">
                     <div>
@@ -741,6 +727,153 @@ function Field({ label, children }) {
         <div>
             <div className="text-xs text-white/60 mb-1">{label}</div>
             {children}
+        </div>
+    );
+}
+
+/**
+ * ✅ 최신 반영: 코인 선택 검색 콤보박스
+ * - KRW 마켓만 markets에 들어온다는 전제 (fetchMarkets에서 필터해도 됨)
+ * - 표시: 비트코인(BTC)
+ * - 입력: BTC/비트코인/Bitcoin 모두 가능
+ * - 후보가 1개면 Enter로 자동 선택
+ * - 선택 결과는 market(KRW-BTC)을 onChange로 전달
+ */
+function MarketCombobox({
+                            markets,
+                            value,
+                            onChange,
+                            placeholder = "코인 검색 (예: 비트코인, BTC)",
+                            limit = 12,
+                        }) {
+    const [open, setOpen] = useState(false);
+    const [q, setQ] = useState("");
+
+    const normalize = (s) => String(s || "").trim().toLowerCase();
+
+    const toSymbol = (market) => {
+        const m = String(market || "");
+        return m.includes("-") ? m.split("-")[1] : m;
+    };
+
+    const selected = useMemo(() => {
+        if (!value) return null;
+        return markets.find((m) => m.market === value) || null;
+    }, [markets, value]);
+
+    const scored = useMemo(() => {
+        const queryRaw = q.trim();
+        const query = normalize(queryRaw);
+        const base = markets || [];
+
+        if (!query) return base.slice(0, limit).map((m) => ({ m, score: 0 }));
+
+        const isSymbolOnly = /^[a-z0-9]{2,10}$/i.test(queryRaw);
+
+        const results = base
+            .map((m) => {
+                const market = normalize(m.market); // krw-btc
+                const kor = normalize(m.korean_name);
+                const eng = normalize(m.english_name);
+                const symbol = normalize(toSymbol(m.market)); // btc
+
+                let score = 0;
+
+                // 심볼 정확 일치 최우선 (BTC -> KRW-BTC)
+                if (isSymbolOnly && symbol === query) score += 950;
+
+                // 전체 market 정확 일치
+                if (market === query) score += 1000;
+
+                // 부분 포함
+                if (market.includes(query)) score += 200;
+                if (symbol.includes(query)) score += 180;
+                if (kor.includes(query)) score += 160;
+                if (eng.includes(query)) score += 140;
+
+                return { m, score };
+            })
+            .filter((x) => x.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+
+        return results;
+    }, [markets, q, limit]);
+
+    const candidates = scored.map((x) => x.m);
+
+    const label = (m) => `${m.korean_name || "알수없음"}(${toSymbol(m.market)})`;
+
+    const displayValue = open ? q : selected ? label(selected) : value || "";
+
+    const pick = (m) => {
+        onChange(m.market); // KRW-BTC
+        setQ("");
+        setOpen(false);
+    };
+
+    const onKeyDown = (e) => {
+        if (e.key === "Enter") {
+            if (candidates.length === 1) {
+                e.preventDefault();
+                pick(candidates[0]);
+            }
+        }
+        if (e.key === "Escape") setOpen(false);
+    };
+
+    useEffect(() => {
+        if (!open) setQ("");
+    }, [value, open]);
+
+    return (
+        <div className="relative">
+            <input
+                value={displayValue}
+                onChange={(e) => {
+                    setQ(e.target.value);
+                    setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                onKeyDown={onKeyDown}
+                placeholder={placeholder}
+                className="w-full px-3 py-2 rounded bg-white/10"
+                autoComplete="off"
+            />
+
+            {open && (
+                <>
+                    <div className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#0b0f1a] overflow-hidden">
+                        <div className="max-h-72 overflow-auto">
+                            {q.trim() && candidates.length === 0 ? (
+                                <div className="px-3 py-2 text-sm text-white/60">검색 결과 없음</div>
+                            ) : (
+                                candidates.map((m) => (
+                                    <button
+                                        type="button"
+                                        key={m.market}
+                                        onClick={() => pick(m)}
+                                        className="w-full px-3 py-2 text-left hover:bg-white/5"
+                                    >
+                                        <div className="text-sm font-semibold">{label(m)}</div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+
+                        <div className="px-3 py-2 text-[11px] text-white/40 border-t border-white/10">
+                            {candidates.length === 1 ? "Enter로 자동 선택" : "클릭해서 선택"}
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        className="fixed inset-0 z-10 cursor-default"
+                        onClick={() => setOpen(false)}
+                        aria-label="close"
+                    />
+                </>
+            )}
         </div>
     );
 }
