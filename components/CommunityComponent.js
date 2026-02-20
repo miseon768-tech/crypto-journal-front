@@ -290,19 +290,12 @@ export default function Community() {
 
         return (
             <div className="p-6 text-white max-w-3xl mx-auto">
-                <div className="flex justify-between mb-4">
-                    <h1 className="text-3xl font-bold">커뮤니티</h1>
-                    <div className="flex gap-2">
-                        <button onClick={() => setMode("write")} className="px-4 py-2 bg-primary rounded">글 작성</button>
-                    </div>
-                </div>
-
-                <div className="mb-4 flex gap-2">
+                <div className="mb-4 flex gap-2 justify-end">
                     <input
                         value={searchKeyword}
                         onChange={(e) => setSearchKeyword(e.target.value)}
                         placeholder="검색어 입력"
-                        className="flex-1 px-3 py-2 rounded bg-gray-800"
+                        className="w-full max-w-xs px-3 py-2 rounded bg-gray-800"
                     />
                     <button onClick={() => fetchPosts("search", searchKeyword)} className="px-4 py-2 bg-primary rounded">검색</button>
                 </div>
@@ -315,6 +308,9 @@ export default function Community() {
                         </div>
                     </div>
                 ))}
+                <div className="flex gap-2 justify-end">
+                    <button onClick={() => setMode("write")} className="px-4 py-2 bg-primary rounded">글 작성</button>
+                </div>
             </div>
         );
     }

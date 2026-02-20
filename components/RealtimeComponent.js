@@ -262,8 +262,6 @@ export default function RealtimeComponent({trading_pairs = []}) {
 
     return (
         <div className="space-y-6 text-white p-4">
-            <h2 className="text-2xl font-bold">실시간 데이터(Realtime Data)</h2>
-
             <div className="flex gap-4 mb-4">
                 {tabs.map((tab) => (
                     <button
@@ -300,7 +298,7 @@ export default function RealtimeComponent({trading_pairs = []}) {
                     <div className="md:col-span-4 bg-gray-900 p-3 rounded-lg">
                         <div className="flex items-center mb-2">
                             {/* 왼쪽 빈 공간(밀어내기용) */}
-                            <div className="flex-1" />
+                            <div className="flex-1"/>
 
                             {/* 오른쪽 페이징 */}
                             <div className="flex items-center gap-2 text-sm">

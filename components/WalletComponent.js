@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     getTotalAssets,
     getTotalEvalAmount,
@@ -6,44 +6,28 @@ import {
     getTotalProfitRate,
     getPortfolioAsset,
     getCoinEvalAmount,
-    getCoinProfit
+    getCoinProfit,
 } from "../api/assetPriceStream";
 
-import {
-    addAsset,
-    updateAsset,
-    deleteAsset,
-    getAssets,
-    upsertCashBalance,
-    getCashBalance,
-} from "../api/krwAsset";
+import { upsertCashBalance, getCashBalance } from "../api/krwAsset";
 
 import {
-    getAssetByTradingPair,
-    getAssetByMarket,
-    getAssetByKorean,
-    getAssetByEnglish,
-    getAssetByCategory,
+    getAllCoinAssets,
+    createCoinAsset,
+    updateCoinAsset,
+    deleteCoinAsset,
     upsertCoinBuyAmount,
     getCoinBuyAmount,
     getTotalCoinBuyAmount,
 } from "../api/coinAsset";
 
-import {
-    addFavoriteCoin,
-    getFavoriteCoins,
-    deleteFavoriteCoin,
-    deleteAllFavoriteCoins,
-} from "../api/favoriteCoin";
-
+import { getFavoriteCoins } from "../api/favoriteCoin";
 import { getAllMarkets } from "../api/tradingPair";
 import { getStoredToken } from "../api/member";
 
 export default function WalletComponent() {
-    // ✅ 탭은 3개만: 보유자산 / 보유코인 / 포트폴리오
     const [activeTab, setActiveTab] = useState("myAssets");
 
-    // ✅ 보유자산 탭 요약
     const [summary, setSummary] = useState({
         totalAsset: 0,
         totalEval: 0,
@@ -53,28 +37,35 @@ export default function WalletComponent() {
         totalBuyAmount: 0,
     });
 
-    const [assets, setAssets] = useState([]);
+    const [assets, setAssets] = useState([]); // 카드에 표시할 "가공 데이터"
+    const [rawCoinAssets, setRawCoinAssets] = useState([]); // 백엔드 CoinAsset 원본
     const [portfolio, setPortfolio] = useState([]);
     const [loading, setLoading] = useState(true);
     const [markets, setMarkets] = useState([]);
-    const [favorites, setFavorites] = useState([]); // 유지(기존 fetchAll 영향 최소화)
+    const [favorites, setFavorites] = useState([]);
 
-    // ✅ 입력값들
+    // inputs
     const [krwInput, setKrwInput] = useState("");
 
+    // 등록 폼
     const [coinInput, setCoinInput] = useState("");
     const [coinBalanceInput, setCoinBalanceInput] = useState("");
+    const [coinAvgPriceInput, setCoinAvgPriceInput] = useState("");
 
-    const [selectedCoin, setSelectedCoin] = useState("");
-    const [newCoinBalanceInput, setNewCoinBalanceInput] = useState("");
+    // 상세/수정 drawer
+    const [selectedMarket, setSelectedMarket] = useState(null);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [editCoinBalance, setEditCoinBalance] = useState("");
+    const [editAvgBuyPrice, setEditAvgBuyPrice] = useState("");
+    const [editBuyAmount, setEditBuyAmount] = useState("");
 
-    const [buyAmountMarket, setBuyAmountMarket] = useState("");
-    const [buyAmountInput, setBuyAmountInput] = useState("");
+    // 리스트 검색
+    const [coinFilter, setCoinFilter] = useState("");
 
-    const [searchText, setSearchText] = useState("");
-    const [coinSearchResult, setCoinSearchResult] = useState([]);
-
-    const token = typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null;
+    const token =
+        typeof window !== "undefined"
+            ? getStoredToken(localStorage.getItem("token"))
+            : null;
 
     useEffect(() => {
         if (!token) return;
@@ -89,7 +80,7 @@ export default function WalletComponent() {
                 fetchWalletData(),
                 fetchCoins(),
                 fetchMarkets(),
-                fetchFavorites(), // 기존 그대로 (안 쓰면 나중에 제거 가능)
+                fetchFavorites(),
             ]);
         } finally {
             setLoading(false);
@@ -121,17 +112,36 @@ export default function WalletComponent() {
             const cashBalanceData = getValue(5, 0);
             const totalBuyAmountData = getValue(6, 0);
 
-            const totalAsset = totalAssetData?.totalAssets || totalAssetData?.total_assets || totalAssetData || 0;
-            const totalEval = totalEvalData?.totalEvalAmount || totalEvalData?.total_eval_amount || totalEvalData || 0;
-            const totalProfit = totalProfitData?.totalProfit || totalProfitData?.total_profit || totalProfitData || 0;
-            const profitRate = profitRateData?.totalProfitRate || profitRateData?.total_profit_rate || profitRateData || 0;
-            const cashBalance = cashBalanceData?.cashBalance || cashBalanceData?.cash_balance || cashBalanceData || 0;
+            const totalAsset =
+                typeof totalAssetData === "number"
+                    ? totalAssetData
+                    : totalAssetData?.totalAssets ?? 0;
+            const totalEval =
+                typeof totalEvalData === "number"
+                    ? totalEvalData
+                    : totalEvalData?.totalEvalAmount ?? 0;
+            const totalProfit =
+                typeof totalProfitData === "number"
+                    ? totalProfitData
+                    : totalProfitData?.totalProfit ?? 0;
+            const profitRate =
+                typeof profitRateData === "number"
+                    ? profitRateData
+                    : profitRateData?.totalProfitRate ?? 0;
+
+            const cashBalance =
+                typeof cashBalanceData === "number"
+                    ? cashBalanceData
+                    : cashBalanceData?.cashBalance ??
+                    cashBalanceData?.cash_balance ??
+                    0;
 
             const totalBuyAmount =
-                totalBuyAmountData?.totalBuyAmount ||
-                totalBuyAmountData?.total_buy_amount ||
-                totalBuyAmountData ||
-                0;
+                typeof totalBuyAmountData === "number"
+                    ? totalBuyAmountData
+                    : totalBuyAmountData?.totalBuyAmount ??
+                    totalBuyAmountData?.total_buy_amount ??
+                    0;
 
             setSummary({
                 totalAsset,
@@ -142,9 +152,12 @@ export default function WalletComponent() {
                 totalBuyAmount,
             });
 
-            const formattedPortfolio = (portfolioData || []).map((p) => ({
+            const list = Array.isArray(portfolioData)
+                ? portfolioData
+                : portfolioData?.portfolioItemList ?? portfolioData?.portfolio ?? [];
+            const formattedPortfolio = (list || []).map((p) => ({
                 tradingPair: p.tradingPair || p.trading_pair || p.name || "UNKNOWN",
-                percent: Number(p.percent?.toFixed(2)) || 0,
+                percent: Number(p.percent ?? 0),
             }));
             setPortfolio(formattedPortfolio);
         } catch (e) {
@@ -154,30 +167,39 @@ export default function WalletComponent() {
 
     const fetchCoins = async () => {
         if (!token) return;
-        try {
-            const coinAssetsRes = await getAssets(token);
-            const coinAssets = Array.isArray(coinAssetsRes) ? coinAssetsRes : [];
 
-            const assetPromises = coinAssets.map(async (c) => {
-                const market = c.market;
+        try {
+            const coinAssets = await getAllCoinAssets(token);
+            const normalized = Array.isArray(coinAssets) ? coinAssets : [];
+            setRawCoinAssets(normalized);
+
+            const assetPromises = normalized.map(async (c) => {
+                const market = c.market || c.tradingPair || c.trading_pair;
+                const coinSymbol = market?.includes("-") ? market.split("-")[1] : market;
 
                 const [evalRes, profitRes, buyAmountRes] = await Promise.allSettled([
                     getCoinEvalAmount(token, market),
                     getCoinProfit(token, market),
-                    getCoinBuyAmount(token, market),
+                    getCoinBuyAmount(market, token),
                 ]);
 
-                const evalAmount = evalRes.status === "fulfilled" ? Number(evalRes.value) : 0;
-                const profit = profitRes.status === "fulfilled" ? Number(profitRes.value) : 0;
-                const buyAmount = buyAmountRes.status === "fulfilled" ? Number(buyAmountRes.value) : 0;
+                const evalAmount =
+                    evalRes.status === "fulfilled" ? Number(evalRes.value) : 0;
+                const profit =
+                    profitRes.status === "fulfilled" ? Number(profitRes.value) : 0;
+                const buyAmount =
+                    buyAmountRes.status === "fulfilled" ? Number(buyAmountRes.value) : 0;
 
-                const profitRate = buyAmount ? ((profit / buyAmount) * 100).toFixed(2) : "0.00";
+                const profitRate = buyAmount
+                    ? ((profit / buyAmount) * 100).toFixed(2)
+                    : "0.00";
 
                 return {
-                    tradingPair: market,
-                    amount: Number(c.amount || 0),
+                    market,
+                    coinSymbol,
+                    amount: Number(c.coinBalance ?? 0),
+                    avgPrice: Number(c.avgBuyPrice ?? 0),
                     buyAmount,
-                    avgPrice: Number(c.avgPrice || 0),
                     evalAmount,
                     profit,
                     profitRate,
@@ -188,6 +210,7 @@ export default function WalletComponent() {
         } catch (e) {
             console.error("보유코인 데이터 가져오기 실패:", e);
             setAssets([]);
+            setRawCoinAssets([]);
         }
     };
 
@@ -221,111 +244,133 @@ export default function WalletComponent() {
             alert("✅ KRW가 성공적으로 등록되었습니다!");
         } catch (e) {
             console.error(e);
-            alert("❌ KRW 등록 실패: " + (e.response?.data?.message || e.message || "알 수 없는 오류"));
+            alert("❌ KRW 등록 실패");
         }
     };
 
     const handleAddCoin = async () => {
-        if (!coinInput || !coinBalanceInput || isNaN(coinBalanceInput)) {
+        if (!coinInput || coinBalanceInput === "" || isNaN(coinBalanceInput)) {
             return alert("코인과 보유수량을 정확히 입력하세요");
         }
+        if (Number(coinBalanceInput) < 0) return alert("보유수량은 0 이상이어야 합니다.");
+
         try {
-            await addAsset(token, { market: coinInput.toUpperCase(), amount: Number(coinBalanceInput) });
+            await createCoinAsset(
+                {
+                    market: coinInput.toUpperCase(),
+                    coinBalance: Number(coinBalanceInput),
+                    avgBuyPrice: coinAvgPriceInput === "" ? null : Number(coinAvgPriceInput),
+                    buyAmount: null,
+                },
+                token
+            );
+
             setCoinInput("");
             setCoinBalanceInput("");
+            setCoinAvgPriceInput("");
+
             await fetchCoins();
             await fetchWalletData();
+            alert("✅ 코인 등록 완료");
         } catch (e) {
             console.error(e);
             alert("코인 등록 실패");
         }
     };
 
-    const handleUpdateCoin = async () => {
-        if (!selectedCoin || !newCoinBalanceInput || isNaN(newCoinBalanceInput)) {
-            return alert("코인과 보유수량을 정확히 입력하세요");
-        }
+    const openDrawer = async (market) => {
+        setSelectedMarket(market);
+        setDrawerOpen(true);
+
+        // 현재 카드/원본값 기반으로 초기값 세팅
+        const card = assets.find((a) => a.market === market);
+        const raw = rawCoinAssets.find((a) => (a.market || a.tradingPair) === market);
+
+        setEditCoinBalance(String(card?.amount ?? raw?.coinBalance ?? ""));
+        setEditAvgBuyPrice(String(card?.avgPrice ?? raw?.avgBuyPrice ?? ""));
+
+        // buyAmount는 별도 API로 가져와야 정확함
         try {
-            await updateAsset(token, { market: selectedCoin, amount: Number(newCoinBalanceInput) });
-            setSelectedCoin("");
-            setNewCoinBalanceInput("");
-            await fetchCoins();
-            await fetchWalletData();
-        } catch (e) {
-            console.error(e);
-            alert("��인 수정 실패");
+            const buyAmount = await getCoinBuyAmount(market, token);
+            setEditBuyAmount(String(buyAmount ?? ""));
+        } catch {
+            setEditBuyAmount("");
         }
     };
 
-    const handleDeleteCoin = async (market) => {
-        if (!market) return;
+    const closeDrawer = () => {
+        setDrawerOpen(false);
+        setSelectedMarket(null);
+        setEditCoinBalance("");
+        setEditAvgBuyPrice("");
+        setEditBuyAmount("");
+    };
+
+    const handleSaveCoinDetail = async () => {
+        if (!selectedMarket) return;
+
+        // 숫자 검증(빈 값은 "수정 안 함"으로 처리하고 싶으면 null로)
+        const coinBalance =
+            editCoinBalance === "" ? null : Number(editCoinBalance);
+        const avgBuyPrice =
+            editAvgBuyPrice === "" ? null : Number(editAvgBuyPrice);
+        const buyAmount =
+            editBuyAmount === "" ? null : Number(editBuyAmount);
+
+        if (coinBalance !== null && Number.isNaN(coinBalance)) return alert("보유수량이 숫자가 아닙니다");
+        if (avgBuyPrice !== null && Number.isNaN(avgBuyPrice)) return alert("평단이 숫자가 아닙니다");
+        if (buyAmount !== null && Number.isNaN(buyAmount)) return alert("매수금액이 숫자가 아닙니다");
+
         try {
-            await deleteAsset(token, { market });
+            // 1) 코인 정보(수량/평단) 저장
+            await updateCoinAsset(
+                {
+                    market: selectedMarket,
+                    coinBalance,
+                    avgBuyPrice,
+                    buyAmount: null, // buyAmount는 아래 별도 API로 저장(백엔드 설계가 분리돼 있으니까)
+                },
+                token
+            );
+
+            // 2) 매수금액 저장(입력한 경우에만)
+            if (buyAmount !== null) {
+                await upsertCoinBuyAmount(selectedMarket, buyAmount, token);
+            }
+
             await fetchCoins();
             await fetchWalletData();
+            closeDrawer();
+            alert("✅ 저장 완료");
+        } catch (e) {
+            console.error(e);
+            alert("저장 실패");
+        }
+    };
+
+    const handleDeleteCoin = async () => {
+        if (!selectedMarket) return;
+        if (!confirm(`${selectedMarket} 자산을 삭제할까요?`)) return;
+
+        try {
+            await deleteCoinAsset(selectedMarket, token);
+            await fetchCoins();
+            await fetchWalletData();
+            closeDrawer();
         } catch (e) {
             console.error(e);
             alert("코인 삭제 실패");
         }
     };
 
-    const handleUpsertBuyAmount = async () => {
-        if (!buyAmountMarket || !buyAmountInput || isNaN(buyAmountInput) || Number(buyAmountInput) <= 0) {
-            return alert("코인과 매수금액(0보다 큰 값)을 정확히 입력하세요");
-        }
-        try {
-            await upsertCoinBuyAmount(token, buyAmountMarket, Number(buyAmountInput));
-            setBuyAmountMarket("");
-            setBuyAmountInput("");
-            await fetchCoins();
-            await fetchWalletData();
-            alert("✅ 매수금액이 등록/수정되었습니다.");
-        } catch (e) {
-            console.error(e);
-            alert("❌ 매수금액 등록 실패");
-        }
-    };
-
-    const handleSearchCoin = async (text) => {
-        if (!token || !text) return;
-
-        try {
-            const results = [];
-
-            try {
-                const r1 = await getAssetByTradingPair(text, token);
-                if (r1) results.push(r1);
-            } catch { }
-            try {
-                const r2 = await getAssetByMarket(text, token);
-                if (r2) results.push(r2);
-            } catch { }
-            try {
-                const r3 = await getAssetByKorean(text, token);
-                if (r3) results.push(r3);
-            } catch { }
-            try {
-                const r4 = await getAssetByEnglish(text, token);
-                if (r4) results.push(r4);
-            } catch { }
-
-            const unique = results.reduce((acc, cur) => {
-                if (!acc.find((item) => item.tradingPair === cur.tradingPair)) acc.push(cur);
-                return acc;
-            }, []);
-
-            setCoinSearchResult(unique);
-        } catch (e) {
-            console.error(e);
-            alert("코인 검색 실패");
-        }
-    };
+    const filteredAssets = useMemo(() => {
+        const q = coinFilter.trim().toUpperCase();
+        if (!q) return assets;
+        return assets.filter((a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q));
+    }, [assets, coinFilter]);
 
     return (
         <div className="text-white">
-            <h2 className="text-xl font-bold px-4 pt-4">Wallet</h2>
-
-            {/* ✅ 상단 탭: 3개만 */}
             <div className="px-4 pt-3 border-b border-white/10 flex gap-7">
                 <TopTab active={activeTab === "myAssets"} onClick={() => setActiveTab("myAssets")}>
                     보유자산
@@ -338,7 +383,6 @@ export default function WalletComponent() {
                 </TopTab>
             </div>
 
-            {/* body */}
             <div className="p-4 space-y-4">
                 {loading && (
                     <div className="flex justify-center items-center py-20">
@@ -349,16 +393,10 @@ export default function WalletComponent() {
                     </div>
                 )}
 
-                {!loading && portfolio.length === 0 && assets.length === 0 && !summary.cashBalance && (
-                    <div className="text-center text-gray-400 mt-10">현재 등록된 자산이 없습니다.</div>
-                )}
-
                 {!loading && activeTab === "myAssets" && (
                     <div className="space-y-4">
                         <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
-                            <div className="text-lg font-semibold flex items-center gap-2">
-                                내 보유자산
-                            </div>
+                            <div className="text-lg font-semibold">내 보유자산</div>
 
                             <div className="mt-4 grid grid-cols-2 gap-6">
                                 <div>
@@ -376,7 +414,6 @@ export default function WalletComponent() {
                                 </div>
                             </div>
 
-                            {/* ✅ 여기 수정: 평가손익/수익률 줄맞춤 */}
                             <div className="mt-6 grid grid-cols-2 gap-x-10 gap-y-3 text-sm">
                                 <MetricRow label="총 매수" value={`${Number(summary.totalBuyAmount || 0).toLocaleString()} KRW`} />
                                 <MetricRow
@@ -397,6 +434,7 @@ export default function WalletComponent() {
 
                         <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
                             <div className="text-sm font-semibold mb-3">보유 현금 (KRW) 등록/수정</div>
+
                             <div className="flex gap-2">
                                 <input
                                     type="number"
@@ -408,13 +446,15 @@ export default function WalletComponent() {
                                 />
                                 <button
                                     onClick={handleAddKrw}
-                                    className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-lg font-semibold transition"
+                                    className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-lg font-semibold transition shrink-0"
                                 >
                                     등록/수정
                                 </button>
                             </div>
+
                             <div className="mt-3 text-sm text-white/70">
-                                현재 보유: <span className="font-bold text-white">{Number(summary.cashBalance || 0).toLocaleString()}원</span>
+                                현재 보유:{" "}
+                                <span className="font-bold text-white">{Number(summary.cashBalance || 0).toLocaleString()}원</span>
                             </div>
                         </section>
                     </div>
@@ -422,10 +462,19 @@ export default function WalletComponent() {
 
                 {!loading && activeTab === "coins" && (
                     <div className="space-y-4">
-                        <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
-                            <div className="text-sm font-semibold mb-3">코인 등록/수정</div>
+                        {/* ✅ 상단: 검색 + 등록 폼을 분리해서 더 깔끔하게 */}
+                        <section className="rounded-2xl bg-white/5 p-5 border border-white/5 space-y-4">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div className="text-sm font-semibold">보유코인</div>
+                                <input
+                                    value={coinFilter}
+                                    onChange={(e) => setCoinFilter(e.target.value)}
+                                    placeholder="코인 검색 (예: BTC, KRW-BTC)"
+                                    className="w-full md:w-72 px-3 py-2 rounded bg-white/10"
+                                />
+                            </div>
 
-                            <div className="flex flex-wrap gap-2 mb-4">
+                            <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_180px_140px] gap-2">
                                 <select
                                     value={coinInput}
                                     onChange={(e) => setCoinInput(e.target.value)}
@@ -443,83 +492,92 @@ export default function WalletComponent() {
                                     type="number"
                                     value={coinBalanceInput}
                                     onChange={(e) => setCoinBalanceInput(e.target.value)}
-                                    placeholder="보유 수량"
+                                    placeholder="보유수량"
+                                    className="px-3 py-2 rounded bg-white/10"
+                                />
+
+                                <input
+                                    type="number"
+                                    value={coinAvgPriceInput}
+                                    onChange={(e) => setCoinAvgPriceInput(e.target.value)}
+                                    placeholder="평단(선택)"
                                     className="px-3 py-2 rounded bg-white/10"
                                 />
 
                                 <button onClick={handleAddCoin} className="px-4 py-2 bg-indigo-500 rounded font-semibold">
-                                    코인 등록
+                                    등록
                                 </button>
                             </div>
 
-                            <div className="flex flex-wrap gap-2 mb-4">
-                                <select
-                                    value={selectedCoin}
-                                    onChange={(e) => setSelectedCoin(e.target.value)}
-                                    className="px-3 py-2 rounded bg-white/10"
-                                >
-                                    <option value="">수정할 코인 선택</option>
-                                    {assets.map((c) => (
-                                        <option key={c.tradingPair} value={c.tradingPair}>
-                                            {c.tradingPair}
-                                        </option>
-                                    ))}
-                                </select>
-
-                                <input
-                                    type="number"
-                                    value={newCoinBalanceInput}
-                                    onChange={(e) => setNewCoinBalanceInput(e.target.value)}
-                                    placeholder="새 보유 수량"
-                                    className="px-3 py-2 rounded bg-white/10"
-                                />
-
-                                <button onClick={handleUpdateCoin} className="px-4 py-2 bg-green-600 rounded font-semibold">
-                                    수정
-                                </button>
-
-                                {selectedCoin && (
-                                    <button onClick={() => handleDeleteCoin(selectedCoin)} className="px-4 py-2 bg-red-600 rounded font-semibold">
-                                        삭제
-                                    </button>
-                                )}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                                <select
-                                    value={buyAmountMarket}
-                                    onChange={(e) => setBuyAmountMarket(e.target.value)}
-                                    className="px-3 py-2 rounded bg-white/10"
-                                >
-                                    <option value="">매수금액 입력할 코인 선택</option>
-                                    {assets.map((c) => (
-                                        <option key={c.tradingPair} value={c.tradingPair}>
-                                            {c.tradingPair}
-                                        </option>
-                                    ))}
-                                </select>
-
-                                <input
-                                    type="number"
-                                    value={buyAmountInput}
-                                    onChange={(e) => setBuyAmountInput(e.target.value)}
-                                    placeholder="매수금액(원)"
-                                    className="px-3 py-2 rounded bg-white/10"
-                                />
-
-                                <button onClick={handleUpsertBuyAmount} className="px-4 py-2 bg-indigo-500 rounded font-semibold">
-                                    매수금액 등록/수정
-                                </button>
+                            <div className="text-xs text-white/50">
+                                코인을 눌러서 상세보기/수정/삭제/매수금액을 한 화면에서 처리할 수 있어요.
                             </div>
                         </section>
 
-                        {/* ✅ 보유코인 리스트 */}
-                        <section className="space-y-3">
-                            {assets.length === 0 && <div className="text-white/50 text-sm">보유 코인이 없습니다.</div>}
-                            {assets.map((coin) => (
-                                <CoinCard key={coin.tradingPair} coin={coin} />
-                            ))}
+                        {/* ✅ 리스트: "카드" 대신 테이블 느낌의 row로 (더 정보 밀도 높고 깔끔) */}
+                        <section className="rounded-2xl bg-white/5 border border-white/5 overflow-hidden">
+                            <div className="px-5 py-3 border-b border-white/10 text-xs text-white/60 grid grid-cols-[1.2fr_1fr_1fr_1fr_80px]">
+                                <div>코인</div>
+                                <div className="text-right">평가금액</div>
+                                <div className="text-right">평가손익</div>
+                                <div className="text-right">수익률</div>
+                                <div className="text-right">관리</div>
+                            </div>
+
+                            {filteredAssets.length === 0 ? (
+                                <div className="p-5 text-white/50 text-sm">보유 코인이 없습니다.</div>
+                            ) : (
+                                filteredAssets.map((coin) => {
+                                    const profitNum = Number(coin.profit || 0);
+                                    const profitRateNum = Number(coin.profitRate || 0);
+                                    const profitColor = profitNum >= 0 ? "text-red-400" : "text-blue-400";
+                                    const rateColor = profitRateNum >= 0 ? "text-red-400" : "text-blue-400";
+
+                                    return (
+                                        <button
+                                            key={coin.market}
+                                            onClick={() => openDrawer(coin.market)}
+                                            className="w-full px-5 py-4 grid grid-cols-[1.2fr_1fr_1fr_1fr_80px] text-left hover:bg-white/5 transition"
+                                        >
+                                            <div>
+                                                <div className="text-base font-semibold">{coin.coinSymbol}</div>
+                                                <div className="text-xs text-white/50">{coin.market}</div>
+                                            </div>
+
+                                            <div className="text-right tabular-nums">
+                                                {Number(coin.evalAmount || 0).toLocaleString()}
+                                            </div>
+
+                                            <div className={`text-right tabular-nums font-semibold ${profitColor}`}>
+                                                {profitNum.toLocaleString()}
+                                            </div>
+
+                                            <div className={`text-right tabular-nums ${rateColor}`}>
+                                                {profitRateNum.toFixed(2)}%
+                                            </div>
+
+                                            <div className="text-right text-xs text-white/60">보기</div>
+                                        </button>
+                                    );
+                                })
+                            )}
                         </section>
+
+                        {/* ✅ 상세/수정 Drawer */}
+                        <CoinDetailDrawer
+                            open={drawerOpen}
+                            market={selectedMarket}
+                            onClose={closeDrawer}
+                            onSave={handleSaveCoinDetail}
+                            onDelete={handleDeleteCoin}
+                            editCoinBalance={editCoinBalance}
+                            setEditCoinBalance={setEditCoinBalance}
+                            editAvgBuyPrice={editAvgBuyPrice}
+                            setEditAvgBuyPrice={setEditAvgBuyPrice}
+                            editBuyAmount={editBuyAmount}
+                            setEditBuyAmount={setEditBuyAmount}
+                            selectedCard={assets.find((a) => a.market === selectedMarket)}
+                        />
                     </div>
                 )}
 
@@ -565,9 +623,6 @@ function TopTab({ active, children, onClick }) {
     );
 }
 
-/**
- * ✅ 여기 수정: 라벨폭 고정 + 값 오른쪽 정렬로 줄 맞���
- */
 function MetricRow({ label, value, valueClass = "text-white" }) {
     return (
         <div className="grid grid-cols-[88px_1fr] items-center">
@@ -577,53 +632,115 @@ function MetricRow({ label, value, valueClass = "text-white" }) {
     );
 }
 
-/**
- * ✅ 스샷처럼 보이도록 보유코인 카드형 UI
- */
-function CoinCard({ coin }) {
-    const profitNum = Number(coin.profit || 0);
-    const profitRateNum = Number(coin.profitRate || 0);
+function CoinDetailDrawer({
+                              open,
+                              market,
+                              onClose,
+                              onSave,
+                              onDelete,
+                              editCoinBalance,
+                              setEditCoinBalance,
+                              editAvgBuyPrice,
+                              setEditAvgBuyPrice,
+                              editBuyAmount,
+                              setEditBuyAmount,
+                              selectedCard,
+                          }) {
+    if (!open) return null;
 
+    const profitNum = Number(selectedCard?.profit || 0);
+    const profitRateNum = Number(selectedCard?.profitRate || 0);
     const profitColor = profitNum >= 0 ? "text-red-400" : "text-blue-400";
     const rateColor = profitRateNum >= 0 ? "text-red-400" : "text-blue-400";
 
     return (
-        <div className="rounded-2xl bg-white/5 border border-white/5 overflow-hidden">
-            <div className="px-5 pt-5 pb-4">
-                <div className="flex items-start justify-between">
-                    <div className="text-xl font-semibold">{coin.tradingPair}</div>
+        <div className="fixed inset-0 z-50">
+            {/* backdrop */}
+            <button
+                className="absolute inset-0 bg-black/60"
+                onClick={onClose}
+                aria-label="close"
+            />
 
-                    <div className="text-right">
+            {/* panel */}
+            <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-[#0b0f1a] border-l border-white/10 p-5 overflow-y-auto">
+                <div className="flex items-start justify-between">
+                    <div>
+                        <div className="text-lg font-semibold">{market}</div>
+                        <div className="text-xs text-white/50 mt-1">상세보기 · 수정 · 매수금액 설정</div>
+                    </div>
+                    <button onClick={onClose} className="text-white/70 hover:text-white">
+                        닫기
+                    </button>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-white/5 border border-white/10 p-4">
                         <div className="text-xs text-white/50">평가손익</div>
-                        <div className={`text-xl font-semibold tabular-nums ${profitColor}`}>
+                        <div className={`mt-1 text-lg font-semibold tabular-nums ${profitColor}`}>
                             {profitNum.toLocaleString()}
                         </div>
-
-                        <div className="mt-1 text-xs text-white/50">수익률</div>
-                        <div className={`text-lg tabular-nums ${rateColor}`}>
+                    </div>
+                    <div className="rounded-xl bg-white/5 border border-white/10 p-4">
+                        <div className="text-xs text-white/50">수익률</div>
+                        <div className={`mt-1 text-lg font-semibold tabular-nums ${rateColor}`}>
                             {profitRateNum.toFixed(2)}%
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="h-px bg-white/10" />
+                <div className="mt-6 space-y-3">
+                    <Field label="보유수량">
+                        <input
+                            value={editCoinBalance}
+                            onChange={(e) => setEditCoinBalance(e.target.value)}
+                            className="w-full px-3 py-2 rounded bg-white/10"
+                            placeholder="예: 0.0123"
+                        />
+                    </Field>
 
-            <div className="p-5 grid grid-cols-2 gap-y-5">
-                <StatBlock label="보유수량" value={`${Number(coin.amount || 0)}`} />
-                <StatBlock label="매수평균가" value={`${Number(coin.avgPrice || 0).toLocaleString()} KRW`} />
-                <StatBlock label="평가금액" value={`${Number(coin.evalAmount || 0).toLocaleString()} KRW`} />
-                <StatBlock label="매수금액" value={`${Number(coin.buyAmount || 0).toLocaleString()} KRW`} />
+                    <Field label="매수평균가(원)">
+                        <input
+                            value={editAvgBuyPrice}
+                            onChange={(e) => setEditAvgBuyPrice(e.target.value)}
+                            className="w-full px-3 py-2 rounded bg-white/10"
+                            placeholder="예: 100000000"
+                        />
+                    </Field>
+
+                    <Field label="매수금액(원) - 업비트 총 매수 그대로 입력">
+                        <input
+                            value={editBuyAmount}
+                            onChange={(e) => setEditBuyAmount(e.target.value)}
+                            className="w-full px-3 py-2 rounded bg-white/10"
+                            placeholder="예: 300000"
+                        />
+                    </Field>
+                </div>
+
+                <div className="mt-6 flex gap-2">
+                    <button onClick={onSave} className="flex-1 px-4 py-2 rounded bg-indigo-500 font-semibold">
+                        저장
+                    </button>
+                    <button onClick={onDelete} className="px-4 py-2 rounded bg-red-600/90 font-semibold">
+                        삭제
+                    </button>
+                </div>
+
+                <div className="mt-4 text-xs text-white/50 leading-relaxed">
+                    • “추가로 더하기”가 아니라 업비트에 보이는 <b>현재값을 그대로 덮어쓰기</b> 방식이에요.<br />
+                    • 매수금액은 코인별로 따로 저장하며, 수익률 계산에 사용돼요.
+                </div>
             </div>
         </div>
     );
 }
 
-function StatBlock({ label, value }) {
+function Field({ label, children }) {
     return (
-        <div className="text-center">
-            <div className="text-xs text-white/50">{label}</div>
-            <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+        <div>
+            <div className="text-xs text-white/60 mb-1">{label}</div>
+            {children}
         </div>
     );
 }
