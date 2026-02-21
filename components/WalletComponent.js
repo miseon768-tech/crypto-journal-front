@@ -54,7 +54,7 @@ export default function WalletComponent() {
     const [coinBalanceInput, setCoinBalanceInput] = useState("");
     const [coinAvgPriceInput, setCoinAvgPriceInput] = useState("");
 
-    // 상세/수정 drawer state (유지: MyCoins가 UI 사용)
+    // 상세/수정 drawer state
     const [selectedMarket, setSelectedMarket] = useState(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [editCoinBalance, setEditCoinBalance] = useState("");
@@ -75,53 +75,65 @@ export default function WalletComponent() {
     }, [token]);
 
     // ---------- Helpers ----------
-    // 더 안전한 market 추출기 (tradingPair가 객체/숫자/문자열 어떤 형태로 와도 처리)
     const extractMarket = (c) => {
         if (!c) return "";
-        // 우선 직접 제공되는 필드들 확인
         if (typeof c.market === "string" && c.market.trim()) return c.market.trim();
 
-        // tradingPair 혹은 trading_pair 필드가 객체인 경우 내부의 시장 식별자 확인
         const tp = c.tradingPair ?? c.trading_pair;
         if (tp && typeof tp === "object") {
-            // 가능한 필드명들을 순서대로 시도
             const candidates = [tp.market, tp.symbol, tp.name, tp.english_name, tp.korean_name];
             for (const x of candidates) {
                 if (typeof x === "string" && x.trim()) return x.trim();
             }
         }
 
-        // tradingPair가 문자열/숫자(아이디)로 왔을 경우
         if (typeof tp === "string" && tp.trim()) return tp.trim();
         if (typeof tp === "number") return String(tp);
 
-        // 기타 대체 필드
         const alt = c.market_name ?? c.marketString ?? c.symbol ?? c.coinSymbol;
         if (typeof alt === "string" && alt.trim()) return alt.trim();
 
         return "";
     };
 
-    // coinSymbol 추출기: market 문자열에서 "-" 뒤 심볼을 우선, 없으면 tradingPair 내부 역할 필드 사용
     const extractSymbol = (c, marketStr) => {
         if (typeof marketStr === "string" && marketStr.includes("-")) {
             return marketStr.split("-")[1];
         }
-
         const tp = c?.tradingPair ?? c?.trading_pair;
         if (tp && typeof tp === "object") {
             return tp.symbol ?? tp.english_name ?? tp.korean_name ?? tp.name ?? "";
         }
-
         if (typeof c.coinSymbol === "string" && c.coinSymbol.trim()) return c.coinSymbol.trim();
         if (typeof c.symbol === "string" && c.symbol.trim()) return c.symbol.trim();
-
-        // fallback: if marketStr is non-empty return it, else empty string
         return typeof marketStr === "string" && marketStr ? marketStr : "";
     };
 
     const calcBuyAmount = (coinBalance, avgBuyPrice) => {
         return Math.round((Number(coinBalance) || 0) * (Number(avgBuyPrice) || 0));
+    };
+
+    // 헬퍼: Promise 결과에서 숫자 꺼내기 (API가 숫자 또는 객체로 반환할 수 있음)
+    const extractNumberFromApi = (res) => {
+        if (!res || res.status !== "fulfilled") return 0;
+        const v = res.value;
+        if (typeof v === "number") return Number(v) || 0;
+        if (v && typeof v === "object") {
+            return Number(
+                v.evalAmount ??
+                v.eval_amount ??
+                v.evalAmountKr ??
+                v.eval_amount_krw ??
+                v.profit ??
+                v.totalProfit ??
+                v.totalProfitAmount ??
+                v.totalEvalAmount ??
+                v.totalAssets ??
+                v.cashBalance ??
+                0
+            ) || 0;
+        }
+        return Number(v) || 0;
     };
 
     // ---------- Data loaders ----------
@@ -219,7 +231,7 @@ export default function WalletComponent() {
             const coinAssets = await getAllCoinAssets(token);
             const normalized = Array.isArray(coinAssets) ? coinAssets : [];
 
-            // 디버깅: 첫 항목 구조 확인 (문제 해결 후 주석 처리 가능)
+            // (디버그) API 반환 구조 확인 — 필요 시 서버 응답 구조를 여기로 붙여주세요
             if (normalized.length > 0) {
                 console.debug("getAllCoinAssets sample:", normalized[0]);
             }
@@ -227,29 +239,39 @@ export default function WalletComponent() {
             setRawCoinAssets(normalized);
 
             const assetPromises = normalized.map(async (c) => {
-                // 안전한 market/심볼 추출
                 const market = extractMarket(c).trim();
                 const coinSymbol = extractSymbol(c, market) || "";
+
+                const coinName =
+                    (c?.tradingPair && (c.tradingPair.korean_name || c.tradingPair.english_name)) ||
+                    c?.korean_name ||
+                    c?.english_name ||
+                    c?.name ||
+                    coinSymbol ||
+                    "";
 
                 const [evalRes, profitRes] = await Promise.allSettled([
                     getCoinEvalAmount(token, market),
                     getCoinProfit(token, market),
                 ]);
 
-                const evalAmount = evalRes.status === "fulfilled" ? Number(evalRes.value) : 0;
-                const profit = profitRes.status === "fulfilled" ? Number(profitRes.value) : 0;
+                const evalAmount = extractNumberFromApi(evalRes);
+                const profit = extractNumberFromApi(profitRes);
 
-                // buyAmount 필드명 차이 처리
                 const buyAmount =
                     Number(c.buyAmount ?? c.buy_amount ?? c.buy_amount_krw ?? calcBuyAmount(c.coinBalance, c.avgBuyPrice)) || 0;
+
+                const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
+                const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
 
                 const profitRate = buyAmount ? ((profit / buyAmount) * 100).toFixed(2) : "0.00";
 
                 return {
                     market,
                     coinSymbol,
-                    amount: Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0),
-                    avgPrice: Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0),
+                    coinName,
+                    amount,
+                    avgPrice,
                     buyAmount,
                     evalAmount,
                     profit,
@@ -362,7 +384,7 @@ export default function WalletComponent() {
 
         if (coinBalance === null || Number.isNaN(coinBalance)) return alert("보유수량을 입력하세요");
         if (coinBalance < 0) return alert("보유수량은 0 이상이어야 합니다.");
-        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평균가(평단)를 입력하세요");
+        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평���가(평단)를 입력하세요");
 
         try {
             await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyPrice }, token);
@@ -387,7 +409,7 @@ export default function WalletComponent() {
             closeDrawer();
         } catch (e) {
             console.error(e);
-            alert("코인 삭제 실���");
+            alert("코인 삭제 실패");
         }
     };
 
@@ -396,7 +418,7 @@ export default function WalletComponent() {
         const q = coinFilter.trim().toUpperCase();
         if (!q) return assets;
         return assets.filter(
-            (a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q)
+            (a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q) || a.coinName?.toUpperCase().includes(q)
         );
     }, [assets, coinFilter]);
 

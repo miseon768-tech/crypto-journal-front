@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 /**
- * MyCoins (보유코인) UI — MarketCombobox, CoinDetailDrawer, Field를 내부 정의로 포함해 독립 동작합니다.
+ * MyCoins (보유코인) UI — 내부에서 MarketCombobox / CoinDetailDrawer / Field 정의 포함
+ * - 부모에서 전달한 assets/filteredAssets 객체의 필드: market, coinSymbol, coinName, amount, avgPrice, buyAmount, evalAmount, profit, profitRate
  */
 
 export default function MyCoins({
@@ -28,6 +29,15 @@ export default function MyCoins({
                                     setEditAvgBuyPrice = () => {},
                                 }) {
     const hasAssets = Array.isArray(filteredAssets) && filteredAssets.length > 0;
+
+    const fKRW = (n) => {
+        const num = Number(n || 0);
+        return num ? `${num.toLocaleString()} KRW` : "0 KRW";
+    };
+    const fNum = (n) => {
+        const num = Number(n || 0);
+        return num ? num.toLocaleString() : "0";
+    };
 
     return (
         <div className="space-y-4">
@@ -63,7 +73,7 @@ export default function MyCoins({
                     </button>
                 </div>
 
-                <div className="text-xs text-white/50">매수금액은 <b>보유수량 × 매수평균가</b>로 서버에서 자동 계산됩니다.</div>
+                <div className="text-xs text-white/50">매수금액은 <b>보유수량 × 매수평균가</b>로 서버에서 자동 계산됩니��.</div>
             </section>
 
             <section className="rounded-2xl bg-white/5 border border-white/5 overflow-hidden">
@@ -85,24 +95,50 @@ export default function MyCoins({
                         const rateColor = profitRateNum >= 0 ? "text-red-400" : "text-blue-400";
 
                         return (
-                            <button
+                            <div
                                 key={String(coin.market) || Math.random()}
                                 onClick={() => openDrawer(coin.market)}
-                                className="w-full px-5 py-4 grid grid-cols-[1.2fr_1fr_1fr_1fr_80px] text-left hover:bg-white/5 transition"
+                                className="w-full px-5 py-4 hover:bg-white/5 transition cursor-pointer"
                             >
-                                <div>
-                                    <div className="text-base font-semibold">{coin.coinSymbol}</div>
-                                    <div className="text-xs text-white/50">{coin.market}</div>
+                                {/* Row 1: Title + profit / profitRate */}
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="text-base font-semibold">
+                                            {coin.coinName ? `${coin.coinName} (${coin.coinSymbol})` : coin.coinSymbol}
+                                        </div>
+                                        <div className="text-xs text-white/50">{coin.market}</div>
+                                    </div>
+
+                                    <div className="text-right">
+                                        <div className={`font-semibold ${profitColor}`}>{fKRW(coin.profit)}</div>
+                                        <div className={`text-sm ${rateColor}`}>{Number(coin.profitRate || 0).toFixed(2)}%</div>
+                                    </div>
                                 </div>
 
-                                <div className="text-right tabular-nums">{Number(coin.evalAmount || 0).toLocaleString()}</div>
+                                {/* Row 2: amount | avgPrice */}
+                                <div className="mt-3 grid grid-cols-2 text-sm text-white/80">
+                                    <div>
+                                        <div className="text-xs text-white/50">보유수량</div>
+                                        <div className="mt-1 font-medium tabular-nums">{fNum(coin.amount)} {coin.coinSymbol}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs text-white/50">매수평균가</div>
+                                        <div className="mt-1 font-medium tabular-nums">{fKRW(coin.avgPrice)}</div>
+                                    </div>
+                                </div>
 
-                                <div className={`text-right tabular-nums font-semibold ${profitColor}`}>{profitNum.toLocaleString()}</div>
-
-                                <div className={`text-right tabular-nums ${rateColor}`}>{profitRateNum.toFixed(2)}%</div>
-
-                                <div className="text-right text-xs text-white/60">보기</div>
-                            </button>
+                                {/* Row 3: evalAmount | buyAmount */}
+                                <div className="mt-3 grid grid-cols-2 text-sm">
+                                    <div>
+                                        <div className="text-xs text-white/50">평가금액</div>
+                                        <div className="mt-1 font-semibold tabular-nums">{fKRW(coin.evalAmount)}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs text-white/50">매수금액</div>
+                                        <div className="mt-1 font-medium tabular-nums">{fKRW(coin.buyAmount)}</div>
+                                    </div>
+                                </div>
+                            </div>
                         );
                     })
                 )}
@@ -125,7 +161,7 @@ export default function MyCoins({
 }
 
 /* -------------------------
-   MarketCombobox (내부)
+   MarketCombobox (간단 포함)
    ------------------------- */
 function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12 }) {
     const [open, setOpen] = useState(false);
@@ -227,7 +263,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                         </div>
 
                         <div className="px-3 py-2 text-[11px] text-white/40 border-t border-white/10">
-                            {candidates.length === 1 ? "Enter로 자동 선택" : "클릭해서 선택"}
+                            {candidates.length === 1 ? "Enter로 자동 선택" : "클릭해서 선��"}
                         </div>
                     </div>
 
@@ -239,7 +275,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 }
 
 /* -------------------------
-   CoinDetailDrawer (내부)
+   CoinDetailDrawer (간단 포함)
    ------------------------- */
 function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBalance, setEditCoinBalance, editAvgBuyPrice, setEditAvgBuyPrice, selectedCard }) {
     if (!open) return null;
