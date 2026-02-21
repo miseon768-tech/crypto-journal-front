@@ -1,6 +1,8 @@
 import { getStoredToken } from "./member";
 
-const API_BASE = `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"}/api/coin/assets`;
+const API_BASE = `${
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"
+}/api/coin/assets`;
 
 // 토큰 기반 Authorization 헤더
 const authHeader = (token) => (token ? { Authorization: `Bearer ${token}` } : {});
@@ -16,9 +18,15 @@ const parseError = async (res) => {
     }
 };
 
+// 숫자 파싱 유틸: "", null, undefined, NaN -> null / 그 외 유효 숫자만 number로
+const toNumberOrNull = (v) => {
+    if (v === "" || v === null || v === undefined) return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+};
+
 // =====================================================
 // ✅ 1) 모든 코인 자산 조회 (GET /api/coin/assets)
-// 백엔드: List<CoinAsset>를 그대로 내려줌(우리가 추가한 엔드포인트 기준)
 // =====================================================
 export const getAllCoinAssets = async (token = getStoredToken()) => {
     const res = await fetch(API_BASE, { headers: authHeader(token) });
@@ -34,24 +42,26 @@ export const getAllCoinAssets = async (token = getStoredToken()) => {
 
 // =====================================================
 // ✅ 2) 코인 자산 등록 (POST /api/coin/assets)
-// body: { market, coinBalance, avgBuyPrice?, buyAmount? }
+// 정책: buyAmount는 서버에서 (coinBalance * avgBuyPrice)로 자동 계산
+// body: { market, coinBalance, avgBuyPrice }
 // =====================================================
 export const createCoinAsset = async (
-    { market, coinBalance, avgBuyPrice = null, buyAmount = null },
+    { market, coinBalance, avgBuyPrice },
     token = getStoredToken()
 ) => {
+    const payload = {
+        market,
+        coinBalance: toNumberOrNull(coinBalance),
+        avgBuyPrice: toNumberOrNull(avgBuyPrice),
+    };
+
     const res = await fetch(API_BASE, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             ...authHeader(token),
         },
-        body: JSON.stringify({
-            market,
-            coinBalance: coinBalance === "" ? null : coinBalance,
-            avgBuyPrice: avgBuyPrice === "" ? null : avgBuyPrice,
-            buyAmount: buyAmount === "" ? null : buyAmount,
-        }),
+        body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -63,24 +73,26 @@ export const createCoinAsset = async (
 
 // =====================================================
 // ✅ 3) 코인 자산 수정 (PUT /api/coin/assets)
-// body: { market, coinBalance?, avgBuyPrice?, buyAmount? }
+// 정책: buyAmount는 서버에서 (coinBalance * avgBuyPrice)로 자동 계산
+// body: { market, coinBalance, avgBuyPrice }
 // =====================================================
 export const updateCoinAsset = async (
-    { market, coinBalance = null, avgBuyPrice = null, buyAmount = null },
+    { market, coinBalance, avgBuyPrice },
     token = getStoredToken()
 ) => {
+    const payload = {
+        market,
+        coinBalance: toNumberOrNull(coinBalance),
+        avgBuyPrice: toNumberOrNull(avgBuyPrice),
+    };
+
     const res = await fetch(API_BASE, {
         method: "PUT",
         headers: {
             "Content-Type": "application/json",
             ...authHeader(token),
         },
-        body: JSON.stringify({
-            market,
-            coinBalance,
-            avgBuyPrice,
-            buyAmount,
-        }),
+        body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -99,7 +111,6 @@ export const deleteCoinAsset = async (market, token = getStoredToken()) => {
         headers: authHeader(token),
     });
 
-    // 204 No Content 예상
     if (!res.ok) {
         throw new Error(`${await parseError(res)} (HTTP ${res.status})`);
     }
@@ -108,32 +119,46 @@ export const deleteCoinAsset = async (market, token = getStoredToken()) => {
 };
 
 // =====================================================
-// ✅ 5) 트레이딩 페어로 자산 검색 (기존 그대로)
+// ✅ 5) 트레이딩 페어로 자산 검색
 // GET /api/coin/assets/{tradingPairId}
 // =====================================================
-export const getAssetByTradingPair = async (tradingPairId, token = getStoredToken()) => {
-    const res = await fetch(`${API_BASE}/${tradingPairId}`, { headers: authHeader(token) });
+export const getAssetByTradingPair = async (
+    tradingPairId,
+    token = getStoredToken()
+) => {
+    const res = await fetch(`${API_BASE}/${tradingPairId}`, {
+        headers: authHeader(token),
+    });
     if (!res.ok) throw new Error("자산 조회 실패");
     return res.json();
 };
 
 // GET /api/coin/assets/market?market=...
 export const getAssetByMarket = async (market, token = getStoredToken()) => {
-    const res = await fetch(`${API_BASE}/market?market=${encodeURIComponent(market)}`, { headers: authHeader(token) });
+    const res = await fetch(
+        `${API_BASE}/market?market=${encodeURIComponent(market)}`,
+        { headers: authHeader(token) }
+    );
     if (!res.ok) throw new Error("자산 조회 실패");
     return res.json();
 };
 
 // GET /api/coin/assets/korean?koreanName=...
 export const getAssetByKorean = async (name, token = getStoredToken()) => {
-    const res = await fetch(`${API_BASE}/korean?koreanName=${encodeURIComponent(name)}`, { headers: authHeader(token) });
+    const res = await fetch(
+        `${API_BASE}/korean?koreanName=${encodeURIComponent(name)}`,
+        { headers: authHeader(token) }
+    );
     if (!res.ok) throw new Error("자산 조회 실패");
     return res.json();
 };
 
 // GET /api/coin/assets/english?englishName=...
 export const getAssetByEnglish = async (name, token = getStoredToken()) => {
-    const res = await fetch(`${API_BASE}/english?englishName=${encodeURIComponent(name)}`, { headers: authHeader(token) });
+    const res = await fetch(
+        `${API_BASE}/english?englishName=${encodeURIComponent(name)}`,
+        { headers: authHeader(token) }
+    );
     if (!res.ok) throw new Error("자산 조회 실패");
     return res.json();
 };
@@ -141,51 +166,16 @@ export const getAssetByEnglish = async (name, token = getStoredToken()) => {
 // GET /api/coin/assets/category?... (기존 그대로)
 export const getAssetByCategory = async (params, token = getStoredToken()) => {
     const query = new URLSearchParams(params).toString();
-    const res = await fetch(`${API_BASE}/category?${query}`, { headers: authHeader(token) });
+    const res = await fetch(`${API_BASE}/category?${query}`, {
+        headers: authHeader(token),
+    });
     if (!res.ok) throw new Error("자산 조회 실패");
     return res.json();
 };
 
 // =====================================================
-// ✅ 6) 코인 매수금액 입력/수정
-// POST /api/coin/assets/purchase-by-coin
-// body: { market, amount }
-// =====================================================
-export const upsertCoinBuyAmount = async (market, amount, token = getStoredToken()) => {
-    const res = await fetch(`${API_BASE}/purchase-by-coin`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            ...authHeader(token),
-        },
-        body: JSON.stringify({ market, amount: Number(amount) }),
-    });
-
-    if (!res.ok) throw new Error(`${await parseError(res)} (HTTP ${res.status})`);
-
-    const data = await res.json();
-    // 백엔드 응답: { success, coinBuyAmountUpsert }
-    return data?.coinBuyAmountUpsert ?? 0;
-};
-
-// =====================================================
-// ✅ 7) 코인 매수금액 조회
-// GET /api/coin/assets/purchase-by-coin?market=...
-// 응답: { success, coinBuyAmountGet }
-// =====================================================
-export const getCoinBuyAmount = async (market, token = getStoredToken()) => {
-    const res = await fetch(`${API_BASE}/purchase-by-coin?market=${encodeURIComponent(market)}`, {
-        headers: authHeader(token),
-    });
-
-    if (!res.ok) throw new Error("매수금액 조회 실패");
-
-    const data = await res.json();
-    return data?.coinBuyAmountGet ?? 0;
-};
-
-// =====================================================
-// ✅ 8) 총 매수금액 조회 (기존 그대로)
+// ✅ 6) 총 매수금액 조회
+// GET /api/coin/assets/total-purchase-amount
 // 응답: { success, totalBuyAmount }
 // =====================================================
 export const getTotalCoinBuyAmount = async (token = getStoredToken()) => {
