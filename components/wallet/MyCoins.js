@@ -2,14 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 
 /**
  * MyCoins (보유코인) — 전체 파일
- * 변경사항 요약:
- * - markets에서 한글명(korean_name / koreanName) 우선으로 사용, 폴백으로 coin 필드 사용
- * - 상단: 한글명 위 / (SYMBOL) 아래로 표시
- * - 우측: "평가손익" 라벨은 왼쪽 정렬, 값은 오른쪽 정렬
- * - 중간/하단 행은 요청대로 모두 오른쪽 정렬(셀 오른쪽 끝에 붙음)
- *
- * 부모에서 전달되는 props:
- *  markets, assets, filteredAssets, openDrawer, drawerOpen, selectedMarket, closeDrawer, onSave, onDelete, editCoinBalance, setEditCoinBalance, editAvgBuyPrice, setEditAvgBuyPrice
  */
 
 export default function MyCoins({
@@ -47,19 +39,64 @@ export default function MyCoins({
     };
 
     const resolveDisplayName = (coin) => {
-        // markets에서 한글명 우선
         if (Array.isArray(markets) && coin?.market) {
             const m = markets.find((x) => String(x.market) === String(coin.market));
             if (m) return m.korean_name ?? m.koreanName ?? m.korean ?? null;
         }
-        // coin 내부 필드 폴백
-        return (
-            coin?.koreanName ??
-            coin?.korean_name ??
-            coin?.coinName ??
-            coin?.name ??
-            (coin?.coinSymbol || "")
-        );
+        return coin?.koreanName ?? coin?.korean_name ?? coin?.coinName ?? coin?.name ?? (coin?.coinSymbol || "");
+    };
+
+    // 안전하게 여러 필드명 중 첫 번째 존재하는 값을 리턴
+    const pickFirst = (obj, ...names) => {
+        if (!obj) return undefined;
+        for (const n of names) {
+            if (obj[n] !== undefined && obj[n] !== null) return obj[n];
+        }
+        return undefined;
+    };
+
+    // 문자열/포맷된 값에서도 숫자를 추출하여 반환 (없으면 undefined)
+    const toNumber = (v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === "number") {
+            return Number.isFinite(v) ? v : undefined;
+        }
+        const s = String(v).trim();
+        if (s === "") return undefined;
+        // 숫자, 소수점, 마이너스만 남긴뒤 파싱 (예: "102,619,002 KRW" -> "102619002")
+        const cleaned = s.replace(/[^0-9.-]+/g, "");
+        if (cleaned === "" || cleaned === "." || cleaned === "-" || cleaned === "-.") return undefined;
+        const parsed = parseFloat(cleaned);
+        return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    // 코인 객체에서 평가금액을 얻어오는 유틸 (직접 필드 우선, 없으면 buy + profit으로 폴백)
+    const getEvalAmount = (coin) => {
+        const directNames = [
+            "evalAmount",
+            "eval_amount",
+            "eval",
+            "evalValue",
+            "eval_value",
+            "evalAmountKRW",
+            "eval_amount_krw",
+        ];
+        for (const name of directNames) {
+            const val = toNumber(coin?.[name]);
+            if (val !== undefined) return val;
+        }
+
+        // 폴백: 매수금액 + 평가손익
+        const buy = toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw"));
+        const profit = toNumber(pickFirst(coin, "profit", "profitAmount", "profit_amount"));
+        if (buy !== undefined && profit !== undefined) return buy + profit;
+
+        return undefined;
+    };
+
+    // buyAmount 안전 추출 (표시용)
+    const getBuyAmount = (coin) => {
+        return toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw")) ?? toNumber(coin?.buyAmount);
     };
 
     return (
@@ -108,12 +145,14 @@ export default function MyCoins({
                     <div className="p-5 text-white/50 text-sm">보유 코인이 없습니다.</div>
                 ) : (
                     filteredAssets.map((coin) => {
-                        const profitNum = Number(coin?.profit ?? 0);
+                        const profitNum = toNumber(pickFirst(coin, "profit", "profitAmount", "profit_amount")) ?? 0;
                         const profitRateNum = Number(coin?.profitRate ?? 0);
                         const profitColor = profitNum >= 0 ? "text-red-400" : "text-blue-400";
                         const rateColor = profitRateNum >= 0 ? "text-red-400" : "text-blue-400";
 
                         const displayName = resolveDisplayName(coin);
+                        const evalAmountValue = getEvalAmount(coin); // 숫자 또는 undefined
+                        const buyAmountVal = getBuyAmount(coin);
 
                         return (
                             <div
@@ -121,62 +160,62 @@ export default function MyCoins({
                                 onClick={() => openDrawer(coin.market)}
                                 className="w-full px-5 py-4 hover:bg-white/5 transition cursor-pointer"
                             >
-                                {/* Row 1 — 가운데를 기준으로 라벨(왼쪽) / 값(오른쪽) 분리 */}
-                                <div className="grid grid-cols-[1.2fr_1fr] items-start">
+                                {/* Row 1 — 가운데를 기준으로 라벨(왼쪽) / 값(오른쪽) 분리 (밑줄) */}
+                                <div className="grid grid-cols-[1.2fr_1fr] items-start border-b border-white/10 pb-1">
                                     {/* 왼쪽: 코인명 블록 */}
                                     <div>
                                         <div className="text-base font-semibold leading-tight">{displayName}</div>
                                         {coin?.coinSymbol ? (
-                                            <div className="text-base font-semibold leading-tight">({coin.coinSymbol})</div>
+                                            <div className="text-base text-white/60 mt-1">({coin.coinSymbol})</div>
                                         ) : null}
                                     </div>
 
-                                    {/* 오른쪽: 2행 x 2열 그리드 — 왼쪽 열은 '가운데 기준 바로 오른쪽'에 붙는 라벨, 오른쪽 열은 숫자(오른쪽 정렬) */}
+                                    {/* 오른쪽: 2행 x 2열 그리드 */}
                                     <div className="grid grid-rows-2 grid-cols-2 w-full">
-                                        {/* 1행: 평가손익 (라벨) */}
-                                        <div className="text-base font-semibold leading-tight">
-                                            평가손익
-                                        </div>
-                                        {/* 1행: ���가손익 값 (오른쪽으로 붙��) */}
-                                        <div className={`text-base leading-tight tabular-nums text-right ${profitColor} self-center`}>
-                                            {Number(coin?.profit ?? 0) !== 0 ? `${Math.round(Number(coin.profit)).toLocaleString()}` : "-"}
+                                        {/* 1행: 평가손익 라벨 */}
+                                        <div className="text-base font-semibold text-white/60 self-center">평가손익</div>
+                                        {/* 1행: 평가손익 값 */}
+                                        <div className={`text-base font-semibold tabular-nums text-right ${profitColor} self-center`}>
+                                            {Number.isFinite(profitNum) ? `${Math.round(profitNum).toLocaleString()}` : "-"}
                                         </div>
 
-                                        {/* 2행: 수익률 (라벨) */}
-                                        <div className="text-base font-semibold leading-tight">
-                                            수익률
-                                        </div>
+                                        {/* 2행: 수익률 라벨 */}
+                                        <div className="text-base font-semibold text-white/60 self-center">수익률</div>
                                         {/* 2행: 수익률 값 */}
-                                        <div className={`text-base text-right ${rateColor} self-center`}>
+                                        <div className={`text-base font-semibold text-right ${rateColor} self-center`}>
                                             {Number.isFinite(profitRateNum) ? `${profitRateNum.toFixed(2)}%` : "-"}
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Row 2: 보유수량 | 매수평균가 — 숫자를 Row1과 동일한 크기/굵기로 */}
+                                {/* Row 2: 보유수량 | 매수평균가 */}
                                 <div className="mt-3 grid grid-cols-2">
                                     <div className="justify-self-end text-right">
                                         <div className="text-base leading-tight">
-                                            {fNum(coin?.amount)} <span className="text-base leading-tight">{coin?.coinSymbol}</span>
+                                            {fNum(toNumber(coin?.amount) ?? coin?.amount)} <span className="text-base text-white/60">{coin?.coinSymbol}</span>
                                         </div>
                                         <div className="text-sm text-white/60 mt-1">보유수량</div>
                                     </div>
 
                                     <div className="justify-self-end text-right">
-                                        <div className="text-base leading-tight">{fKRW(coin?.avgPrice)}</div>
+                                        <div className="text-base leading-tight">{fKRW(toNumber(coin?.avgPrice) ?? coin?.avgPrice)}</div>
                                         <div className="text-sm text-white/60 mt-1">매수평균가</div>
                                     </div>
                                 </div>
 
-                                {/* Row 3: 평가금액 | 매수금액 — 숫자를 Row1과 동일한 크기/굵기로 */}
+                                {/* Row 3: 평가금액 | 매수금액 */}
                                 <div className="mt-3 grid grid-cols-2">
                                     <div className="justify-self-end text-right">
-                                        <div className="text-base leading-tight">{fKRW(coin?.evalAmount)}</div>
+                                        <div className="text-base leading-tight">
+                                            {evalAmountValue !== undefined && Number.isFinite(evalAmountValue) ? fKRW(evalAmountValue) : "-"}
+                                        </div>
                                         <div className="text-sm text-white/60 mt-1">평가금액</div>
                                     </div>
 
                                     <div className="justify-self-end text-right">
-                                        <div className="text-base leading-tight">{fKRW(coin?.buyAmount)}</div>
+                                        <div className="text-base leading-tight">
+                                            {buyAmountVal !== undefined && Number.isFinite(buyAmountVal) ? fKRW(buyAmountVal) : "-"}
+                                        </div>
                                         <div className="text-sm text-white/60 mt-1">매수금액</div>
                                     </div>
                                 </div>
@@ -358,7 +397,7 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
                 </div>
 
                 <div className="mt-6 space-y-3">
-                    <Field label="보유수량">
+                    <Field label="보���수량">
                         <input value={editCoinBalance} onChange={(e) => setEditCoinBalance(e.target.value)} className="w-full px-3 py-2 rounded bg-white/10" placeholder="예: 0.0123" />
                     </Field>
 
