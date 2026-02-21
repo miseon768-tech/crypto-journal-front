@@ -4,6 +4,29 @@ export default function MyAssets({summary, krwInput, setKrwInput, handleAddKrw})
     return (
         <div className="space-y-4">
             <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
+                <div className="text-sm font-semibold mb-3">보유현금(KRW)</div>
+
+                <div className="flex gap-2">
+                    <input
+                        type="number"
+                        value={krwInput}
+                        onChange={(e) => setKrwInput(e.target.value)}
+                        placeholder="보유 KRW 금액 입력"
+                        className="px-3 py-2 rounded-lg bg-white/10 flex-1"
+                        min="0"
+                    />
+                    <button onClick={handleAddKrw}
+                            className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-lg font-semibold transition shrink-0">
+                        등록/수정
+                    </button>
+                </div>
+
+                <div className="mt-3 text-sm text-white/70">
+                    현재 보유:{" "}
+                    <span className="font-bold text-white">{Number(summary.cashBalance || 0).toLocaleString()}원</span>
+                </div>
+            </section>
+            <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
                 <div className="mt-4 grid grid-cols-2 gap-6">
                     <div>
                         <div className="text-sm text-white/60">보유 KRW</div>
@@ -32,29 +55,6 @@ export default function MyAssets({summary, krwInput, setKrwInput, handleAddKrw})
                 </div>
             </section>
 
-            <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
-                <div className="text-sm font-semibold mb-3">보유 현금 (KRW) 등록/수정</div>
-
-                <div className="flex gap-2">
-                    <input
-                        type="number"
-                        value={krwInput}
-                        onChange={(e) => setKrwInput(e.target.value)}
-                        placeholder="보유 KRW 금액 입력"
-                        className="px-3 py-2 rounded-lg bg-white/10 flex-1"
-                        min="0"
-                    />
-                    <button onClick={handleAddKrw}
-                            className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-lg font-semibold transition shrink-0">
-                        등록/수정
-                    </button>
-                </div>
-
-                <div className="mt-3 text-sm text-white/70">
-                    현재 보유:{" "}
-                    <span className="font-bold text-white">{Number(summary.cashBalance || 0).toLocaleString()}원</span>
-                </div>
-            </section>
         </div>
     );
 }
