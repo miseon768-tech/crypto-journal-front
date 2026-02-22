@@ -69,11 +69,13 @@ export default function WalletComponent() {
     const [coinFilter, setCoinFilter] = useState("");
 
     // favorites UI state
-    const [favInput, setFavInput] = useState(""); // 입력으로 관심코인 추가 (legacy, Favorites uses combo)
+    const [favInput, setFavInput] = useState(""); // 입력으로 관심코인 추가 (legacy)
     const [selectedFavIds, setSelectedFavIds] = useState(new Set()); // 선택 삭제용
 
     // STOMP / tickers
-    const [tickers, setTickers] = useState({}); // ex: { "KRW-BTC": 60000000, ... }
+    // tickers will hold objects per market key:
+    // { "KRW-BTC": { price, prevClose, change, changeRate, volume, raw } }
+    const [tickers, setTickers] = useState({});
     const pendingTickersRef = useRef({});
     const stompClientRef = useRef(null);
 
@@ -159,6 +161,8 @@ export default function WalletComponent() {
                     if (!msg || !msg.body) return;
                     try {
                         const payload = JSON.parse(msg.body);
+
+                        // extract market identifier from common fields
                         const marketRaw =
                             payload.market ??
                             payload.code ??
@@ -166,26 +170,58 @@ export default function WalletComponent() {
                             payload.market_name ??
                             (payload.ticker && payload.ticker.market) ??
                             "";
+
+                        // extract useful numeric fields if present
                         const priceRaw =
                             payload.tradePrice ??
                             payload.trade_price ??
                             payload.price ??
                             payload.lastPrice ??
                             payload.last_price ??
-                            payload.tradePriceKr ??
-                            payload.trade_price_krw;
+                            payload.close ??
+                            null;
+
+                        const prevCloseRaw =
+                            payload.prevClose ?? payload.prev_close ?? payload.open ?? payload.yesterdayPrice ?? null;
+
+                        const volumeRaw =
+                            payload.volume ??
+                            payload.tradeVolume ??
+                            payload.accTradeVolume ??
+                            payload.acc_trade_volume ??
+                            payload.acc_volume_24h ??
+                            payload.changeAmount ??
+                            null;
 
                         const market = String(marketRaw ?? "").trim();
-                        const price = Number(priceRaw);
+                        const price = priceRaw != null ? Number(priceRaw) : null;
+                        const prevClose = prevCloseRaw != null ? Number(prevCloseRaw) : null;
+                        const volume = volumeRaw != null ? Number(volumeRaw) : null;
 
-                        if (!market || Number.isNaN(price)) return;
+                        // if no market or price not number, still try to store raw but ignore numeric-only checks
+                        if (!market) return;
 
                         const normalized = normalizeMarket(market);
 
-                        // Debug log
-                        console.debug("[STOMP] recv ticker:", { marketRaw, normalized, price });
+                        // compute change, changeRate if possible
+                        const change = price != null && prevClose != null ? price - prevClose : (payload.change ?? payload.diff ?? null);
+                        const changeNum = change != null ? Number(change) : null;
+                        const changeRate =
+                            payload.changeRate ??
+                            payload.change_rate ??
+                            (changeNum != null && prevClose ? (changeNum / prevClose) * 100 : null);
 
-                        pendingTickersRef.current[normalized] = price;
+                        // store a rich ticker object in pendingTickersRef
+                        pendingTickersRef.current[normalized] = {
+                            price: price ?? null,
+                            prevClose: prevClose ?? null,
+                            change: changeNum ?? null,
+                            changeRate: changeRate ?? null,
+                            volume: volume ?? null,
+                            raw: payload,
+                        };
+
+                        // batch updates every 100ms
                         if (!pendingTickersRef.current._timer) {
                             pendingTickersRef.current._timer = setTimeout(() => {
                                 const updates = { ...pendingTickersRef.current };
@@ -329,6 +365,7 @@ export default function WalletComponent() {
             return;
         }
         try {
+            console.debug("fetchFavorites token:", token);
             const data = await getFavoriteCoins(token);
             console.debug("fetchFavorites - raw response:", data);
 
@@ -537,6 +574,17 @@ export default function WalletComponent() {
         }
     };
 
+    // helper to read price from tickers state (handles numeric or object)
+    const getTickerPriceValue = (marketKey) => {
+        if (!marketKey) return undefined;
+        const k1 = marketKey;
+        const k2 = marketKey.replace("-", "");
+        const val = tickers?.[k1] ?? tickers?.[k2];
+        if (val === undefined || val === null) return undefined;
+        if (typeof val === "number") return val;
+        return val.price ?? val.tradePrice ?? val.lastPrice ?? undefined;
+    };
+
     // ---------- Compute assets from rawCoinAssets + tickers ----------
     useEffect(() => {
         const newAssets = rawCoinAssets.map((c) => {
@@ -545,14 +593,13 @@ export default function WalletComponent() {
             const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
             const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
 
-            // try ticker with normalized key, and alt without hyphen
-            const tickerPrice = tickers[market];
-            const tickerPriceAlt = tickers[market.replace("-", "")];
-
-            const currentPrice = tickerPrice !== undefined ? tickerPrice : (tickerPriceAlt !== undefined ? tickerPriceAlt : avgPrice);
+            // read ticker price from tickers (supports both number and object)
+            const tickerObj = tickers[market] ?? tickers[market.replace("-", "")];
+            const tickerPrice = getTickerPriceValue(market);
+            const currentPrice = tickerPrice !== undefined ? tickerPrice : avgPrice;
 
             // debug
-            console.debug(`[ASSET] ${marketRaw} -> ${market} | ticker=${tickerPrice} alt=${tickerPriceAlt} current=${currentPrice} avg=${avgPrice}`);
+            console.debug(`[ASSET] ${marketRaw} -> ${market} | tickerObj=`, tickerObj, "| currentPrice=", currentPrice, "avg=", avgPrice);
 
             const evalAmount = Math.round(amount * currentPrice);
             const profit = Math.round(amount * (currentPrice - avgPrice));
@@ -688,6 +735,7 @@ export default function WalletComponent() {
                             <Favorites
                                 markets={markets}
                                 favorites={favorites}
+                                tickers={tickers} // <-- pass rich tickers to Favorites for display
                                 favInput={favInput}
                                 setFavInput={setFavInput}
                                 onAddFavorite={handleAddFavorite}

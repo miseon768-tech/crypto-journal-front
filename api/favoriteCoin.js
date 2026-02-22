@@ -1,27 +1,31 @@
 const API_BASE = `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"}/api/assets/favorites`;
 
-// plain text header (POST expects raw string)
-const authHeaderPlain = (token) => ({
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "text/plain",
-});
+// resolve token (supports string or object like { accessToken, token, value } )
+function resolveToken(token) {
+    if (!token) return null;
+    if (typeof token === "string") return token;
+    return token.accessToken ?? token.token ?? token.value ?? null;
+}
 
-// json header
-const authHeaderJson = (token) => ({
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-});
+function authHeader(token, contentType = "application/json") {
+    const t = resolveToken(token);
+    if (!t) return {};
+    return {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": contentType,
+    };
+}
 
-// 유틸: 응답 본문 안전 파싱
 async function parseResponseBody(res) {
     const text = await res.text().catch(() => null);
     if (!text) return null;
     try { return JSON.parse(text); } catch { return text; }
 }
 
-// 관심 코인 추가 (서버가 RequestBody로 원시 문자열을 받도록 구현됨)
+// add favorite (server expects raw string body) — tries text/plain then JSON fallback
 export const addFavoriteCoin = async (coinInput, token) => {
-    if (!token) throw new Error("토큰이 필요합니다.");
+    const t = resolveToken(token);
+    if (!t) throw new Error("토큰이 필요합니다.");
 
     let marketStr;
     if (!coinInput) throw new Error("빈 입력입니다.");
@@ -31,13 +35,35 @@ export const addFavoriteCoin = async (coinInput, token) => {
 
     marketStr = marketStr.trim().toUpperCase();
 
+    // Try POST with text/plain (server controller expects raw String)
+    const headers = authHeader(token, "text/plain");
+    console.debug("[API] addFavoriteCoin - POST", API_BASE, { headers, body: marketStr });
     const res = await fetch(API_BASE, {
         method: "POST",
-        headers: authHeaderPlain(token),
+        headers,
         body: marketStr,
     });
 
+    // If server rejects text/plain (415) or returns 400, try JSON fallback
+    if (res.status === 415 || res.status === 400) {
+        console.debug("[API] addFavoriteCoin - retrying as JSON");
+        const res2 = await fetch(API_BASE, {
+            method: "POST",
+            headers: authHeader(token, "application/json"),
+            body: JSON.stringify({ market: marketStr }),
+        });
+        const parsed2 = await parseResponseBody(res2);
+        if (!res2.ok) {
+            const err = new Error(`관심 코인 추가 실패 (status: ${res2.status})${parsed2 ? " - " + JSON.stringify(parsed2) : ""}`);
+            err.status = res2.status;
+            err.body = parsed2;
+            throw err;
+        }
+        return parsed2;
+    }
+
     const body = await parseResponseBody(res);
+    console.debug("[API] addFavoriteCoin - resp", res.status, body);
     if (!res.ok) {
         const err = new Error(`관심 코인 추가 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
         err.status = res.status;
@@ -47,25 +73,23 @@ export const addFavoriteCoin = async (coinInput, token) => {
     return body;
 };
 
-// 관심 코인 조회 — 404("관심 코인 없음")인 경우 빈 배열 반환하도록 처리
+// get favorites (tolerant parsing)
 export const getFavoriteCoins = async (token) => {
-    if (!token) {
+    const t = resolveToken(token);
+    if (!t) {
         console.warn("토큰 없음: 관심 코인 조회 불가");
         return [];
     }
     const res = await fetch(API_BASE, {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${t}` },
     });
 
     const body = await parseResponseBody(res);
+    console.debug("[API] getFavoriteCoins -", res.status, body);
 
-    // 서버가 관심 코인이 없을 때 404 + { message: "관심 코인 없음" } 반환하는 경우,
-    // 이를 에러가 아닌 빈 리스트로 처리합니다.
-    if (res.status === 404) {
-        console.debug("getFavoriteCoins: 404 from server, treating as empty list", body);
-        return [];
-    }
+    // treat 404 as empty list (server may use 404 when none)
+    if (res.status === 404) return [];
 
     if (!res.ok) {
         const err = new Error(`관심 코인 조회 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
@@ -74,24 +98,34 @@ export const getFavoriteCoins = async (token) => {
         throw err;
     }
 
-    // 컨트롤러가 GetFavoriteCoinsResponse 형태로 반환할 수 있으므로 안전하게 리스트 추출
+    // try various shapes
     if (Array.isArray(body)) return body;
     if (body && Array.isArray(body.favoriteCoinList)) return body.favoriteCoinList;
-    return [];
+    if (body && Array.isArray(body.items)) return body.items;
+    if (body && Array.isArray(body.data?.favoriteCoinList)) return body.data.favoriteCoinList;
+    // if object representing single favorite
+    if (body && (body.market || body.id || body.tradingPair)) return [body];
+
+    // fallback: find first array in values
+    const maybe = Object.values(body || {}).find((v) => Array.isArray(v));
+    return Array.isArray(maybe) ? maybe : [];
 };
 
-// 선택 삭제 (body: [id1, id2, ...])
+// delete selected
 export const deleteFavoriteCoin = async (ids, token) => {
-    if (!token) throw new Error("토큰이 필요합니다.");
+    const t = resolveToken(token);
+    if (!t) throw new Error("토큰이 필요합니다.");
     if (!Array.isArray(ids)) throw new Error("ids는 배열이어야 합니다.");
 
     const res = await fetch(`${API_BASE}/select`, {
         method: "DELETE",
-        headers: authHeaderJson(token),
+        headers: authHeader(token, "application/json"),
         body: JSON.stringify(ids),
     });
 
     const body = await parseResponseBody(res);
+    console.debug("[API] deleteFavoriteCoin -", res.status, body);
+
     if (!res.ok) {
         const err = new Error(`선택 삭제 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
         err.status = res.status;
@@ -101,16 +135,18 @@ export const deleteFavoriteCoin = async (ids, token) => {
     return body;
 };
 
-// 전체 삭제
 export const deleteAllFavoriteCoins = async (token) => {
-    if (!token) throw new Error("토큰이 필요합니다.");
+    const t = resolveToken(token);
+    if (!t) throw new Error("토큰이 필요합니다.");
 
     const res = await fetch(API_BASE, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${t}` },
     });
 
     const body = await parseResponseBody(res);
+    console.debug("[API] deleteAllFavoriteCoins -", res.status, body);
+
     if (!res.ok) {
         const err = new Error(`전체 삭제 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
         err.status = res.status;
