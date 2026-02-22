@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import MyAssets from "./wallet/MyAssets";
 import MyCoins from "./wallet/MyCoins";
 import Portfolio from "./wallet/Portfolio";
@@ -27,6 +27,22 @@ import { getFavoriteCoins } from "../api/favoriteCoin";
 import { getAllMarkets } from "../api/tradingPair";
 import { getStoredToken } from "../api/member";
 
+import { Client } from "@stomp/stompjs";
+import SockJS from "sockjs-client";
+
+/**
+ * WalletComponent - Wallet 전체(보유자산 / 보유코인 / 포트폴리오)에 실시간 현재가 반영
+ *
+ * 핵심 변경:
+ * - SockJS에 절대 백엔드 URL 사용 (REACT_APP_BACKEND_WS_URL 또는 기본 http://localhost:8080/ws)
+ * - CONNECT 시 Authorization 헤더로 토큰 전달
+ * - 수신 마켓 정규화(normalizeMarket)로 키 매칭 안정화
+ * - 디버그 로그 추가: 연결/수신/배치 적용/자산 재계산
+ *
+ * 환경변수:
+ * - REACT_APP_BACKEND_WS_URL (예: "http://localhost:8080/ws")
+ */
+
 export default function WalletComponent() {
     const [activeTab, setActiveTab] = useState("myAssets");
 
@@ -34,34 +50,35 @@ export default function WalletComponent() {
         totalAsset: 0,
         totalEval: 0,
         totalProfit: 0,
-        profitRate: 0,
+        profitRate: "0.00",
         cashBalance: 0,
         totalBuyAmount: 0,
     });
 
-    const [assets, setAssets] = useState([]); // 가공 데이터
-    const [rawCoinAssets, setRawCoinAssets] = useState([]); // 백엔드 원본
+    const [assets, setAssets] = useState([]);
+    const [rawCoinAssets, setRawCoinAssets] = useState([]);
     const [portfolio, setPortfolio] = useState([]);
     const [loading, setLoading] = useState(true);
     const [markets, setMarkets] = useState([]);
     const [favorites, setFavorites] = useState([]);
 
-    // inputs
     const [krwInput, setKrwInput] = useState("");
 
-    // coin 등록 inputs
     const [coinInput, setCoinInput] = useState("");
     const [coinBalanceInput, setCoinBalanceInput] = useState("");
     const [coinAvgPriceInput, setCoinAvgPriceInput] = useState("");
 
-    // 상세/수정 drawer state
     const [selectedMarket, setSelectedMarket] = useState(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [editCoinBalance, setEditCoinBalance] = useState("");
     const [editAvgBuyPrice, setEditAvgBuyPrice] = useState("");
 
-    // 리스트 검색
     const [coinFilter, setCoinFilter] = useState("");
+
+    // STOMP / tickers
+    const [tickers, setTickers] = useState({}); // ex: { "KRW-BTC": 60000000, ... }
+    const pendingTickersRef = useRef({});
+    const stompClientRef = useRef(null);
 
     const token =
         typeof window !== "undefined"
@@ -74,7 +91,17 @@ export default function WalletComponent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
-    // ---------- Helpers ----------
+    // --------- Helpers ----------
+    const normalizeMarket = (m) => {
+        if (!m && m !== 0) return "";
+        let s = String(m).trim().toUpperCase();
+        s = s.replace(/\s+/g, "");
+        if (s.includes("-")) return s;
+        const match = s.match(/^([A-Z]{3})([A-Z0-9]+)$/);
+        if (match) return `${match[1]}-${match[2]}`;
+        return s;
+    };
+
     const extractMarket = (c) => {
         if (!c) return "";
         if (typeof c.market === "string" && c.market.trim()) return c.market.trim();
@@ -113,28 +140,85 @@ export default function WalletComponent() {
         return Math.round((Number(coinBalance) || 0) * (Number(avgBuyPrice) || 0));
     };
 
-    // 헬퍼: Promise 결과에서 숫자 꺼내기 (API가 숫자 또는 객체로 반환할 수 있음)
-    const extractNumberFromApi = (res) => {
-        if (!res || res.status !== "fulfilled") return 0;
-        const v = res.value;
-        if (typeof v === "number") return Number(v) || 0;
-        if (v && typeof v === "object") {
-            return Number(
-                v.evalAmount ??
-                v.eval_amount ??
-                v.evalAmountKr ??
-                v.eval_amount_krw ??
-                v.profit ??
-                v.totalProfit ??
-                v.totalProfitAmount ??
-                v.totalEvalAmount ??
-                v.totalAssets ??
-                v.cashBalance ??
-                0
-            ) || 0;
+    // --------- STOMP / SockJS 연결 ----------
+    useEffect(() => {
+        if (!token) return;
+
+        const backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://localhost:8080/ws";
+
+        // cleanup existing client if any
+        try {
+            stompClientRef.current?.deactivate();
+        } catch (e) {
+            /* ignore */
         }
-        return Number(v) || 0;
-    };
+
+        const client = new Client({
+            webSocketFactory: () => new SockJS(backendWsUrl),
+            reconnectDelay: 5000,
+            heartbeatIncoming: 0,
+            heartbeatOutgoing: 20000,
+            connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+            onConnect: () => {
+                console.info("[STOMP] connected");
+                client.subscribe("/topic/ticker", (msg) => {
+                    if (!msg || !msg.body) return;
+                    try {
+                        const payload = JSON.parse(msg.body);
+                        const marketRaw =
+                            payload.market ??
+                            payload.code ??
+                            payload.marketName ??
+                            payload.market_name ??
+                            (payload.ticker && payload.ticker.market) ??
+                            "";
+                        const priceRaw =
+                            payload.tradePrice ??
+                            payload.trade_price ??
+                            payload.price ??
+                            payload.lastPrice ??
+                            payload.last_price ??
+                            payload.tradePriceKr ??
+                            payload.trade_price_krw;
+
+                        const market = String(marketRaw ?? "").trim();
+                        const price = Number(priceRaw);
+
+                        if (!market || Number.isNaN(price)) return;
+
+                        const normalized = normalizeMarket(market);
+
+                        // Debug log
+                        console.debug("[STOMP] recv ticker:", { marketRaw, normalized, price });
+
+                        pendingTickersRef.current[normalized] = price;
+                        if (!pendingTickersRef.current._timer) {
+                            pendingTickersRef.current._timer = setTimeout(() => {
+                                const updates = { ...pendingTickersRef.current };
+                                delete updates._timer;
+                                console.debug("[STOMP] applying ticker updates:", updates);
+                                setTickers((prev) => ({ ...prev, ...updates }));
+                                pendingTickersRef.current = {};
+                            }, 100);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse ticker message", e);
+                    }
+                });
+            },
+            onStompError: (frame) => console.error("STOMP error", frame),
+            onDisconnect: () => console.info("[STOMP] disconnected"),
+        });
+
+        client.activate();
+        stompClientRef.current = client;
+
+        return () => {
+            try {
+                stompClientRef.current?.deactivate();
+            } catch (e) {}
+        };
+    }, [token]);
 
     // ---------- Data loaders ----------
     const fetchAll = async () => {
@@ -163,62 +247,16 @@ export default function WalletComponent() {
                 return r && r.status === "fulfilled" ? r.value : fallback;
             };
 
-            const totalAssetData = getValue(0, 0);
-            const totalEvalData = getValue(1, 0);
-            const totalProfitData = getValue(2, 0);
-            const profitRateData = getValue(3, 0);
-            const portfolioData = getValue(4, []);
             const cashBalanceData = getValue(5, 0);
-            const totalBuyAmountData = getValue(6, 0);
-
-            const totalAsset =
-                typeof totalAssetData === "number"
-                    ? totalAssetData
-                    : totalAssetData?.totalAssets ?? 0;
-            const totalEval =
-                typeof totalEvalData === "number"
-                    ? totalEvalData
-                    : totalEvalData?.totalEvalAmount ?? 0;
-            const totalProfit =
-                typeof totalProfitData === "number"
-                    ? totalProfitData
-                    : totalProfitData?.totalProfit ?? 0;
-            const profitRate =
-                typeof profitRateData === "number"
-                    ? profitRateData
-                    : profitRateData?.totalProfitRate ?? 0;
-
             const cashBalance =
                 typeof cashBalanceData === "number"
                     ? cashBalanceData
-                    : cashBalanceData?.cashBalance ??
-                    cashBalanceData?.cash_balance ??
-                    0;
+                    : cashBalanceData?.cashBalance ?? cashBalanceData?.cash_balance ?? 0;
 
-            const totalBuyAmount =
-                typeof totalBuyAmountData === "number"
-                    ? totalBuyAmountData
-                    : totalBuyAmountData?.totalBuyAmount ??
-                    totalBuyAmountData?.total_buy_amount ??
-                    0;
-
-            setSummary({
-                totalAsset,
-                totalEval,
-                totalProfit,
-                profitRate: (Number(profitRate) || 0).toFixed(2),
+            setSummary((prev) => ({
+                ...prev,
                 cashBalance,
-                totalBuyAmount,
-            });
-
-            const list = Array.isArray(portfolioData)
-                ? portfolioData
-                : portfolioData?.portfolioItemList ?? portfolioData?.portfolio ?? [];
-            const formattedPortfolio = (list || []).map((p) => ({
-                tradingPair: p.tradingPair || p.trading_pair || p.name || "UNKNOWN",
-                percent: Number(p.percent ?? 0),
             }));
-            setPortfolio(formattedPortfolio);
         } catch (e) {
             console.error("Wallet fetch error:", e);
         }
@@ -231,7 +269,6 @@ export default function WalletComponent() {
             const coinAssets = await getAllCoinAssets(token);
             const normalized = Array.isArray(coinAssets) ? coinAssets : [];
 
-            // (디버그) API 반환 구조 확인 — 필요 시 서버 응답 구조를 여기로 붙여주세요
             if (normalized.length > 0) {
                 console.debug("getAllCoinAssets sample:", normalized[0]);
             }
@@ -250,21 +287,11 @@ export default function WalletComponent() {
                     coinSymbol ||
                     "";
 
-                const [evalRes, profitRes] = await Promise.allSettled([
-                    getCoinEvalAmount(token, market),
-                    getCoinProfit(token, market),
-                ]);
-
-                const evalAmount = extractNumberFromApi(evalRes);
-                const profit = extractNumberFromApi(profitRes);
-
                 const buyAmount =
                     Number(c.buyAmount ?? c.buy_amount ?? c.buy_amount_krw ?? calcBuyAmount(c.coinBalance, c.avgBuyPrice)) || 0;
 
                 const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
                 const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
-
-                const profitRate = buyAmount ? ((profit / buyAmount) * 100).toFixed(2) : "0.00";
 
                 return {
                     market,
@@ -273,13 +300,18 @@ export default function WalletComponent() {
                     amount,
                     avgPrice,
                     buyAmount,
-                    evalAmount,
-                    profit,
-                    profitRate,
                 };
             });
 
-            setAssets(await Promise.all(assetPromises));
+            const prepared = await Promise.all(assetPromises);
+            setAssets(
+                prepared.map((p) => ({
+                    ...p,
+                    evalAmount: Math.round(p.amount * p.avgPrice),
+                    profit: 0,
+                    profitRate: "0.00",
+                }))
+            );
         } catch (e) {
             console.error("보유코인 데이터 가져오기 실패:", e);
             setAssets([]);
@@ -291,7 +323,6 @@ export default function WalletComponent() {
         try {
             const data = await getAllMarkets();
             const all = data.tradingPairs || data.trading_pairs || [];
-
             const onlyKrw = all.filter((m) => String(m.market || "").toUpperCase().startsWith("KRW-"));
             setMarkets(onlyKrw);
         } catch (e) {
@@ -384,7 +415,7 @@ export default function WalletComponent() {
 
         if (coinBalance === null || Number.isNaN(coinBalance)) return alert("보유수량을 입력하세요");
         if (coinBalance < 0) return alert("보유수량은 0 이상이어야 합니다.");
-        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평���가(평단)를 입력하세요");
+        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평균가(평단)를 입력하세요");
 
         try {
             await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyPrice }, token);
@@ -413,16 +444,106 @@ export default function WalletComponent() {
         }
     };
 
-    // filteredAssets for search (memoized)
+    // ---------- Compute assets from rawCoinAssets + tickers ----------
+    useEffect(() => {
+        const newAssets = rawCoinAssets.map((c) => {
+            const marketRaw = extractMarket(c).trim();
+            const market = normalizeMarket(marketRaw); // normalized
+            const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
+            const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
+
+            // try ticker with normalized key, and alt without hyphen
+            const tickerPrice = tickers[market];
+            const tickerPriceAlt = tickers[market.replace("-", "")];
+
+            const currentPrice = tickerPrice !== undefined ? tickerPrice : (tickerPriceAlt !== undefined ? tickerPriceAlt : avgPrice);
+
+            // debug
+            console.debug(`[ASSET] ${marketRaw} -> ${market} | ticker=${tickerPrice} alt=${tickerPriceAlt} current=${currentPrice} avg=${avgPrice}`);
+
+            const evalAmount = Math.round(amount * currentPrice);
+            const profit = Math.round(amount * (currentPrice - avgPrice));
+            const buyAmount = Number(c.buyAmount ?? c.buy_amount ?? c.buy_amount_krw ?? Math.round(amount * avgPrice)) || 0;
+            const profitRate = buyAmount ? ((profit / buyAmount) * 100).toFixed(2) : "0.00";
+            const coinSymbol = extractSymbol(c, market) || "";
+
+            return {
+                market,
+                coinSymbol,
+                coinName:
+                    (c?.tradingPair && (c.tradingPair.korean_name || c.tradingPair.english_name)) ||
+                    c?.korean_name ||
+                    c?.english_name ||
+                    c?.name ||
+                    coinSymbol ||
+                    "",
+                amount,
+                avgPrice,
+                buyAmount,
+                evalAmount,
+                profit,
+                profitRate,
+            };
+        });
+
+        setAssets(newAssets);
+
+        // Recalculate summary
+        const totalEval = newAssets.reduce((s, a) => s + (a.evalAmount || 0), 0);
+        const totalProfit = newAssets.reduce((s, a) => s + (a.profit || 0), 0);
+        const totalBuy = newAssets.reduce((s, a) => s + (a.buyAmount || 0), 0);
+        const cashBalance = summary.cashBalance ?? 0;
+        const totalAsset = totalEval + cashBalance;
+        const profitRate = totalBuy ? ((totalProfit / totalBuy) * 100).toFixed(2) : "0.00";
+
+        setSummary((prev) => ({
+            ...prev,
+            totalEval,
+            totalProfit,
+            totalBuyAmount: totalBuy,
+            totalAsset,
+            profitRate,
+            cashBalance,
+        }));
+
+        // Recalculate portfolio
+        const portfolioItems = newAssets.map((a) => ({
+            assetName: a.coinSymbol || a.market,
+            market: a.market,
+            valuation: a.evalAmount,
+        }));
+
+        const totalAssetsForPercent = totalAsset || 1;
+        const portfolioWithPercent = portfolioItems.map((p) => ({
+            tradingPair: p.assetName,
+            percent: totalAssetsForPercent === 0 ? 0 : (p.valuation / totalAssetsForPercent) * 100,
+            valuation: p.valuation,
+            market: p.market,
+        }));
+
+        portfolioWithPercent.push({
+            tradingPair: "KRW",
+            percent: totalAssetsForPercent === 0 ? 0 : (cashBalance / totalAssetsForPercent) * 100,
+            valuation: cashBalance,
+            market: "KRW",
+        });
+
+        setPortfolio(portfolioWithPercent);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rawCoinAssets, tickers]);
+
     const filteredAssets = useMemo(() => {
         const q = coinFilter.trim().toUpperCase();
         if (!q) return assets;
         return assets.filter(
-            (a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q) || a.coinName?.toUpperCase().includes(q)
+            (a) =>
+                a.market?.toUpperCase().includes(q) ||
+                a.coinSymbol?.toUpperCase().includes(q) ||
+                a.coinName?.toUpperCase().includes(q)
         );
     }, [assets, coinFilter]);
 
-    // ---------- Render (minimal) ----------
+    // ---------- Render ----------
     return (
         <div className="text-white">
             <div className="px-4 pt-3 border-b border-white/10 flex gap-7">
@@ -473,6 +594,7 @@ export default function WalletComponent() {
                                 setEditCoinBalance={setEditCoinBalance}
                                 editAvgBuyPrice={editAvgBuyPrice}
                                 setEditAvgBuyPrice={setEditAvgBuyPrice}
+                                tickers={tickers}
                             />
                         )}
 

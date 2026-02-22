@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 /**
- * MyCoins (보유코인) — 전체 파일
+ * MyCoins (보유코인) — 수정판
+ * - 새로운 prop: tickers (map: market -> price)
+ * - 우선 순위: coin.evalAmount (서버) -> tickers 기반 계산 -> buy+profit 폴백
  */
 
 export default function MyCoins({
@@ -26,6 +28,7 @@ export default function MyCoins({
                                     setEditCoinBalance = () => {},
                                     editAvgBuyPrice = "",
                                     setEditAvgBuyPrice = () => {},
+                                    tickers = {}, // <-- 새 prop: { "KRW-BTC": 60000000, ... }
                                 }) {
     const hasAssets = Array.isArray(filteredAssets) && filteredAssets.length > 0;
 
@@ -63,15 +66,21 @@ export default function MyCoins({
         }
         const s = String(v).trim();
         if (s === "") return undefined;
-        // 숫자, 소수점, 마이너스만 남긴뒤 파싱 (예: "102,619,002 KRW" -> "102619002")
         const cleaned = s.replace(/[^0-9.-]+/g, "");
         if (cleaned === "" || cleaned === "." || cleaned === "-" || cleaned === "-.") return undefined;
         const parsed = parseFloat(cleaned);
         return Number.isFinite(parsed) ? parsed : undefined;
     };
 
-    // 코인 객체에서 평가금액을 얻어오는 유틸 (직접 필드 우선, 없으면 buy + profit으로 폴백)
+    // normalize market key used in tickers map
+    const normalizeMarketKey = (raw) => {
+        if (!raw && raw !== 0) return "";
+        return String(raw).trim().toUpperCase();
+    };
+
+    // 코인 객체에서 평가금액을 얻어오는 유틸 (우선순위: 직접 필드 -> tickers 계산 -> buy + profit 폴백)
     const getEvalAmount = (coin) => {
+        // 1) 서버에서 이미 계산된 값 우선
         const directNames = [
             "evalAmount",
             "eval_amount",
@@ -86,7 +95,15 @@ export default function MyCoins({
             if (val !== undefined) return val;
         }
 
-        // 폴백: 매수금액 + 평가손익
+        // 2) tickers 기반으로 계산 (현재가 * 수량)
+        const marketKey = normalizeMarketKey(pickFirst(coin, "market", "marketName", "market_name"));
+        const tickerPrice = toNumber(tickers?.[marketKey]) ?? toNumber(tickers?.[marketKey.replace(/\s/g, "")]);
+        const amount = toNumber(pickFirst(coin, "amount", "coinBalance", "coin_balance")) ?? toNumber(coin?.amount);
+        if (tickerPrice !== undefined && amount !== undefined) {
+            return Math.round(amount * tickerPrice);
+        }
+
+        // 3) 폴백: 매수금액 + 평가손익
         const buy = toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw"));
         const profit = toNumber(pickFirst(coin, "profit", "profitAmount", "profit_amount"));
         if (buy !== undefined && profit !== undefined) return buy + profit;
@@ -94,9 +111,34 @@ export default function MyCoins({
         return undefined;
     };
 
+    // profit 계산: 우선 필드 -> ticker 기반 계산 -> 0
+    const getProfit = (coin) => {
+        const direct = toNumber(pickFirst(coin, "profit", "profitAmount", "profit_amount"));
+        if (direct !== undefined) return Math.round(direct);
+
+        const marketKey = normalizeMarketKey(pickFirst(coin, "market", "marketName", "market_name"));
+        const price = toNumber(tickers?.[marketKey]) ?? toNumber(tickers?.[marketKey.replace(/\s/g, "")]);
+        const amount = toNumber(pickFirst(coin, "amount", "coinBalance", "coin_balance")) ?? toNumber(coin?.amount);
+        const avg = toNumber(pickFirst(coin, "avgPrice", "avg_price", "avgBuyPrice", "avg_buy_price")) ?? toNumber(coin?.avgPrice);
+        if (price !== undefined && amount !== undefined && avg !== undefined) {
+            return Math.round(amount * (price - avg));
+        }
+        return 0;
+    };
+
+    // profit rate 계산: 우선 필드 -> ticker 기반 계산 -> 0
+    const getProfitRate = (coin) => {
+        const direct = Number(coin?.profitRate ?? coin?.profit_rate);
+        if (!Number.isNaN(direct) && direct !== 0) return direct;
+        const buy = toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw")) ?? Math.round((toNumber(pickFirst(coin, "amount", "coinBalance")) || 0) * (toNumber(pickFirst(coin, "avgPrice", "avg_price")) || 0));
+        const profit = getProfit(coin);
+        if (buy) return (profit / buy) * 100;
+        return 0;
+    };
+
     // buyAmount 안전 추출 (표시용)
     const getBuyAmount = (coin) => {
-        return toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw")) ?? toNumber(coin?.buyAmount);
+        return toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw")) ?? toNumber(coin?.buyAmount) ?? Math.round((toNumber(pickFirst(coin, "amount", "coinBalance")) || 0) * (toNumber(pickFirst(coin, "avgPrice", "avg_price")) || 0));
     };
 
     return (
@@ -145,13 +187,13 @@ export default function MyCoins({
                     <div className="p-5 text-white/50 text-sm">보유 코인이 없습니다.</div>
                 ) : (
                     filteredAssets.map((coin) => {
-                        const profitNum = toNumber(pickFirst(coin, "profit", "profitAmount", "profit_amount")) ?? 0;
-                        const profitRateNum = Number(coin?.profitRate ?? 0);
+                        const evalAmountValue = getEvalAmount(coin);
+                        const profitNum = getProfit(coin);
+                        const profitRateNum = getProfitRate(coin);
                         const profitColor = profitNum >= 0 ? "text-red-400" : "text-blue-400";
                         const rateColor = profitRateNum >= 0 ? "text-red-400" : "text-blue-400";
 
                         const displayName = resolveDisplayName(coin);
-                        const evalAmountValue = getEvalAmount(coin); // 숫자 또는 undefined
                         const buyAmountVal = getBuyAmount(coin);
 
                         return (
@@ -397,7 +439,7 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
                 </div>
 
                 <div className="mt-6 space-y-3">
-                    <Field label="보���수량">
+                    <Field label="보유수량">
                         <input value={editCoinBalance} onChange={(e) => setEditCoinBalance(e.target.value)} className="w-full px-3 py-2 rounded bg-white/10" placeholder="예: 0.0123" />
                     </Field>
 
@@ -412,8 +454,8 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
                 </div>
 
                 <div className="mt-4 text-xs text-white/50 leading-relaxed">
-                    • 매수금액은 서버에서 자동 계산되어 저장됩니다.<br />
-                    • 업비트 화면 값처럼 <b>현재값을 그대로 덮어쓰기</b> 방식이에요.
+                    • 매수금액은 서버에서 자동 계산되어 저장���니다.<br />
+                    • 업비트 화면 값처럼 <b>현재값을 그대로 덮어쓰기</b> 방식���에요.
                 </div>
             </div>
         </div>
