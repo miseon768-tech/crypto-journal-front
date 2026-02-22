@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import MyAssets from "./wallet/MyAssets";
 import MyCoins from "./wallet/MyCoins";
 import Portfolio from "./wallet/Portfolio";
+import Favorites from "./wallet/Favorites";
 
 import {
     getTotalAssets,
@@ -23,7 +24,7 @@ import {
     getTotalCoinBuyAmount,
 } from "../api/coinAsset";
 
-import { getFavoriteCoins } from "../api/favoriteCoin";
+import { getFavoriteCoins, addFavoriteCoin, deleteFavoriteCoin, deleteAllFavoriteCoins } from "../api/favoriteCoin";
 import { getAllMarkets } from "../api/tradingPair";
 import { getStoredToken } from "../api/member";
 
@@ -31,16 +32,8 @@ import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
 /**
- * WalletComponent - Wallet 전체(보유자산 / 보유코인 / 포트폴리오)에 실시간 현재가 반영
- *
- * 핵심 변경:
- * - SockJS에 절대 백엔드 URL 사용 (REACT_APP_BACKEND_WS_URL 또는 기본 http://localhost:8080/ws)
- * - CONNECT 시 Authorization 헤더로 토큰 전달
- * - 수신 마켓 정규화(normalizeMarket)로 키 매칭 안정화
- * - 디버그 로그 추가: 연결/수신/배치 적용/자산 재계산
- *
- * 환경변수:
- * - REACT_APP_BACKEND_WS_URL (예: "http://localhost:8080/ws")
+ * WalletComponent - Wallet 전체(보유자산 / 보유코인 / 포트폴리오 / 관심코인)
+ * 관심코인 탭은 별도 Favorites 컴포넌트로 분리하여 사용합니다.
  */
 
 export default function WalletComponent() {
@@ -74,6 +67,10 @@ export default function WalletComponent() {
     const [editAvgBuyPrice, setEditAvgBuyPrice] = useState("");
 
     const [coinFilter, setCoinFilter] = useState("");
+
+    // favorites UI state
+    const [favInput, setFavInput] = useState(""); // 입력으로 관심코인 추가
+    const [selectedFavIds, setSelectedFavIds] = useState(new Set()); // 선택 삭제용
 
     // STOMP / tickers
     const [tickers, setTickers] = useState({}); // ex: { "KRW-BTC": 60000000, ... }
@@ -325,18 +322,28 @@ export default function WalletComponent() {
             const all = data.tradingPairs || data.trading_pairs || [];
             const onlyKrw = all.filter((m) => String(m.market || "").toUpperCase().startsWith("KRW-"));
             setMarkets(onlyKrw);
+            console.debug("fetched markets:", onlyKrw.length, onlyKrw?.[0]);
         } catch (e) {
             console.error("마켓 불러오기 실패:", e);
         }
     };
 
     const fetchFavorites = async () => {
-        if (!token) return;
+        if (!token) {
+            setFavorites([]);
+            return;
+        }
         try {
             const data = await getFavoriteCoins(token);
-            setFavorites(Array.isArray(data) ? data : []);
+            // 서버가 wrapper 응답을 줄 수 있으므로 양식에 맞춰 처리합니다.
+            // (Controller returns GetFavoriteCoinsResponse with favoriteCoinList)
+            const list = Array.isArray(data) ? data : (data?.favoriteCoinList ?? data?.favoriteCoinListDto ?? []);
+            setFavorites(Array.isArray(list) ? list : []);
+            // reset selected set
+            setSelectedFavIds(new Set());
         } catch (e) {
             console.error("관심 코인 불러오기 실패:", e);
+            setFavorites([]);
         }
     };
 
@@ -389,58 +396,55 @@ export default function WalletComponent() {
         }
     };
 
-    const openDrawer = (market) => {
-        setSelectedMarket(market);
-        setDrawerOpen(true);
-
-        const card = assets.find((a) => a.market === market);
-        const raw = rawCoinAssets.find((a) => extractMarket(a) === market);
-
-        setEditCoinBalance(String(card?.amount ?? raw?.coinBalance ?? ""));
-        setEditAvgBuyPrice(String(card?.avgPrice ?? raw?.avgBuyPrice ?? ""));
-    };
-
-    const closeDrawer = () => {
-        setDrawerOpen(false);
-        setSelectedMarket(null);
-        setEditCoinBalance("");
-        setEditAvgBuyPrice("");
-    };
-
-    const handleSaveCoinDetail = async () => {
-        if (!selectedMarket) return;
-
-        const coinBalance = editCoinBalance === "" ? null : Number(editCoinBalance);
-        const avgBuyPrice = editAvgBuyPrice === "" ? null : Number(editAvgBuyPrice);
-
-        if (coinBalance === null || Number.isNaN(coinBalance)) return alert("보유수량을 입력하세요");
-        if (coinBalance < 0) return alert("보유수량은 0 이상이어야 합니다.");
-        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평균가(평단)를 입력하세요");
-
+    // ---------- Favorites handlers ----------
+    const handleAddFavorite = async (marketStr) => {
+        // marketStr can be provided by Favorites (from combo) OR fallback to favInput
+        const market = (marketStr ?? favInput ?? "").toString().trim();
+        if (!market) return alert("추가할 관심 코인을 입력하세요 (예: KRW-BTC 또는 BTC)");
         try {
-            await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyPrice }, token);
-            await fetchCoins();
-            await fetchWalletData();
-            closeDrawer();
-            alert("저장 완료");
+            // 백엔드가 RequestBody로 원시 문자열(예: "KRW-BTC")을 기대하므로 문자열로 전달합니다.
+            await addFavoriteCoin(market.toUpperCase(), token);
+            setFavInput("");
+            await fetchFavorites();
+            alert("관심 코인 추가 완료");
         } catch (e) {
-            console.error(e);
-            alert("저장 실패");
+            console.error("관심 코인 추가 실패", e);
+            alert(e?.message || "관심 코인 추가 실패");
         }
     };
 
-    const handleDeleteCoin = async () => {
-        if (!selectedMarket) return;
-        if (!confirm(`${selectedMarket} 자산을 삭제할까요?`)) return;
+    const toggleSelectFavorite = (id) => {
+        setSelectedFavIds((prev) => {
+            const copy = new Set(prev);
+            if (copy.has(id)) copy.delete(id);
+            else copy.add(id);
+            return copy;
+        });
+    };
 
+    const handleDeleteSelectedFavorites = async () => {
+        if (selectedFavIds.size === 0) return alert("삭제할 항목을 선택하세요");
+        if (!confirm("선택한 관심코인을 삭제하시겠습니까?")) return;
         try {
-            await deleteCoinAsset(selectedMarket, token);
-            await fetchCoins();
-            await fetchWalletData();
-            closeDrawer();
+            const ids = Array.from(selectedFavIds);
+            await deleteFavoriteCoin(ids, token);
+            await fetchFavorites();
+            alert("선택한 관심코인 삭제 완료");
         } catch (e) {
-            console.error(e);
-            alert("코인 삭제 실패");
+            console.error("선택 삭제 실패", e);
+            alert(e?.message || "삭제 실패");
+        }
+    };
+
+    const handleDeleteAllFavorites = async () => {
+        if (!confirm("관심코인을 모두 삭제하시겠습니까?")) return;
+        try {
+            await deleteAllFavoriteCoins(token);
+            await fetchFavorites();
+            alert("관심코인 전체 삭제 완료");
+        } catch (e) {
+            console.error("전체 삭제 실패", e);
+            alert(e?.message || "전체 삭제 실패");
         }
     };
 
@@ -550,6 +554,7 @@ export default function WalletComponent() {
                 <Tab label="보유자산" active={activeTab === "myAssets"} onClick={() => setActiveTab("myAssets")} />
                 <Tab label="보유코인" active={activeTab === "coins"} onClick={() => setActiveTab("coins")} />
                 <Tab label="포트폴리오" active={activeTab === "portfolio"} onClick={() => setActiveTab("portfolio")} />
+                <Tab label="관심코인" active={activeTab === "favorites"} onClick={() => { setActiveTab("favorites"); fetchFavorites(); }} />
             </div>
 
             <div className="p-4">
@@ -599,6 +604,32 @@ export default function WalletComponent() {
                         )}
 
                         {activeTab === "portfolio" && <Portfolio portfolio={portfolio} />}
+
+                        {activeTab === "favorites" && (
+                            <Favorites
+                                markets={markets}
+                                favorites={favorites}
+                                favInput={favInput}
+                                setFavInput={setFavInput}
+                                onAddFavorite={handleAddFavorite}
+                                selectedFavIds={selectedFavIds}
+                                toggleSelectFavorite={toggleSelectFavorite}
+                                onDeleteSelectedFavorites={handleDeleteSelectedFavorites}
+                                onDeleteAllFavorites={handleDeleteAllFavorites}
+                                onQuickAdd={(market) => { setActiveTab("coins"); setCoinInput(market); }}
+                                onDeleteSingle={async (id) => {
+                                    try {
+                                        const ids = [id];
+                                        await deleteFavoriteCoin(ids, token);
+                                        await fetchFavorites();
+                                    } catch (e) {
+                                        console.error("관심코인 단건 삭제 실패", e);
+                                        alert("삭제 실패");
+                                    }
+                                }}
+                                loading={loading}
+                            />
+                        )}
                     </>
                 )}
             </div>
