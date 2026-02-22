@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 /**
  * Favorites (관심코인)
- * - markets: 거래쌍 메타 배열 (market, korean_name, id, _id, ...)
- * - favorites: 서버에서 내려온 관심코인 배열 (trading_pair_id 같은 id만 있는 경우 포함)
- * - tickers: 실시간 시세 맵
+ * - Header과 Row에 동일한 gridTemplateColumns(cols)을 적용해 간격(정렬)을 고정합니다.
+ * - cols 값을 조정하면 전체 열 너비가 바뀝니다 (desktop 기준).
+ * - WalletComponent에서 markets, favorites, tickers를 전달해야 합니다.
  */
+
 export default function Favorites({
                                       markets = [],
                                       favorites = [],
@@ -22,7 +23,11 @@ export default function Favorites({
     const [query, setQuery] = useState("");
     const [selectedFromCombo, setSelectedFromCombo] = useState("");
 
-    // normalize key: "KRW-BTC" 같은 형태로 맞춤
+    // 그리드 컬럼: [코인명 | 현재가 | 전일대비 | 거래대금]
+    // 이미지(6) 스타일에 가깝게 기본값 설정했습니다.
+    // 원하시면 숫자(픽셀)를 조정해 주세요.
+    const cols = "1fr 220px 140px 140px";
+
     const normalizeMarketKey = (raw) => {
         if (!raw && raw !== 0) return "";
         let s = String(raw).trim().toUpperCase();
@@ -33,65 +38,24 @@ export default function Favorites({
         return s;
     };
 
-    // markets 배열에서 trading_pair id로 메타 찾기
     const findMarketMetaById = (id) => {
         if (id === undefined || id === null) return null;
         const sid = String(id);
-        return (markets || []).find((m) => {
-            // 여러 필드명으로 비교: id, _id, tradingPairId 등
-            return [m.id, m._id, m.tradingPairId, m.trading_pair_id, m.marketId, m.market_id]
+        return (markets || []).find((m) =>
+            [m.id, m._id, m.tradingPairId, m.trading_pair_id, m.marketId, m.market_id]
                 .map((x) => (x === undefined || x === null ? "" : String(x)))
-                .some((v) => v === sid);
-        }) ?? null;
+                .some((v) => v === sid)
+        ) ?? null;
     };
 
-    // favorites 항목에서 market 문자열 추출 (여러 구조 대응 + id -> markets 역매핑)
     const extractMarketFromFavorite = (f) => {
         if (!f) return "";
         if (typeof f === "string") return f;
-
-        // 1) 직접 market 필드들
         if (f.market) return f.market;
         if (f.symbol) return f.symbol;
         if (f.code) return f.code;
 
-        // 2) trading_pair id 계열 필드가 있으면 markets에서 찾아서 market 문자열 채움
-        const possibleIds = [
-            f.trading_pair_id,
-            f.tradingPairId,
-            f.tradingPair?.id,
-            f.tradingPair?._id,
-            f.tradingPairId,
-            f.trading_pair?.id,
-            f.id, // 경우에 따라 favorite에 id로 trading_pair id가 들어올 수 있음
-        ].filter((x) => x !== undefined && x !== null);
-
-        if (possibleIds.length > 0 && Array.isArray(markets) && markets.length > 0) {
-            for (const pid of possibleIds) {
-                const meta = findMarketMetaById(pid);
-                if (meta) return meta.market ?? meta.code ?? meta.symbol ?? "";
-            }
-        }
-
-        // 3) nested tradingPair 객체로부터 market/symbol 시도
-        if (f.tradingPair && typeof f.tradingPair === "object") {
-            if (f.tradingPair.market) return f.tradingPair.market;
-            if (f.tradingPair.symbol) return f.tradingPair.symbol;
-        }
-        if (f.trading_pair && typeof f.trading_pair === "object") {
-            if (f.trading_pair.market) return f.trading_pair.market;
-            if (f.trading_pair.symbol) return f.trading_pair.symbol;
-        }
-
-        // 4) 이름계열 fallback
-        return f.marketName ?? f.name ?? f.korean_name ?? "";
-    };
-
-    // favorites 항목에서 한글명/표시명 추출 (markets 메타 우선)
-    const extractDisplayName = (f) => {
-        if (!f) return "";
-        // if favorite references a trading pair id, use markets meta when available
-        const possibleIds = [
+        const ids = [
             f.trading_pair_id,
             f.tradingPairId,
             f.tradingPair?.id,
@@ -99,14 +63,40 @@ export default function Favorites({
             f.id,
         ].filter((x) => x !== undefined && x !== null);
 
-        if (possibleIds.length > 0 && Array.isArray(markets) && markets.length > 0) {
-            for (const pid of possibleIds) {
+        if (ids.length > 0 && Array.isArray(markets) && markets.length > 0) {
+            for (const pid of ids) {
+                const meta = findMarketMetaById(pid);
+                if (meta) return meta.market ?? meta.code ?? meta.symbol ?? "";
+            }
+        }
+
+        if (f.tradingPair && typeof f.tradingPair === "object") {
+            return f.tradingPair.market ?? f.tradingPair.symbol ?? "";
+        }
+        if (f.trading_pair && typeof f.trading_pair === "object") {
+            return f.trading_pair.market ?? f.trading_pair.symbol ?? "";
+        }
+
+        return f.marketName ?? f.name ?? f.korean_name ?? "";
+    };
+
+    const extractDisplayName = (f) => {
+        if (!f) return "";
+        const ids = [
+            f.trading_pair_id,
+            f.tradingPairId,
+            f.tradingPair?.id,
+            f.tradingPair?._id,
+            f.id,
+        ].filter((x) => x !== undefined && x !== null);
+
+        if (ids.length > 0 && Array.isArray(markets) && markets.length > 0) {
+            for (const pid of ids) {
                 const meta = findMarketMetaById(pid);
                 if (meta) return meta.korean_name ?? meta.koreanName ?? meta.name ?? "";
             }
         }
 
-        // nested
         if (f.tradingPair && typeof f.tradingPair === "object") {
             return f.tradingPair.korean_name ?? f.tradingPair.english_name ?? f.tradingPair.name ?? f.name ?? "";
         }
@@ -114,7 +104,6 @@ export default function Favorites({
         return f.korean_name ?? f.koreanName ?? f.name ?? "";
     };
 
-    // markets 메타에서 marketRaw 문자열로 meta 찾기
     const findMarketMeta = (marketRaw) => {
         if (!marketRaw) return null;
         const key = normalizeMarketKey(marketRaw);
@@ -124,13 +113,12 @@ export default function Favorites({
         }) ?? null;
     };
 
-    // tickers에서 marketRaw로 정보 꺼내기 (여러 포맷 허용)
     const getTickerInfo = (marketRaw) => {
         const key = normalizeMarketKey(marketRaw);
         if (!key) return null;
 
         const candidates = [key, key.replace("-", ""), key.toLowerCase(), key.replace("-", "").toLowerCase()];
-        let t = undefined;
+        let t;
         for (const k of candidates) {
             if (tickers?.[k] !== undefined) {
                 t = tickers[k];
@@ -139,7 +127,6 @@ export default function Favorites({
         }
 
         if (t === undefined && Array.isArray(markets) && markets.length > 0) {
-            // try symbol-based lookup
             const symbol = key.includes("-") ? key.split("-")[1] : key;
             const found = markets.find((m) => {
                 const mKey = normalizeMarketKey(m.market ?? m.code ?? m.symbol ?? "");
@@ -163,19 +150,19 @@ export default function Favorites({
         return { price: price ?? null, prevClose: prevClose ?? null, change: change ?? null, changeRate: changeRate ?? null, volume: volume ?? null };
     };
 
-    // 포맷 유틸
     const formatKRW = (n) => {
         const num = Number(n);
         if (!Number.isFinite(num)) return "-";
         return `${Math.round(num).toLocaleString()} KRW`;
     };
-    const formatNum = (n, digits = 2) => {
+    const formatTradingValue = (n) => {
         const num = Number(n);
-        if (!Number.isFinite(num)) return "-";
-        return num % 1 === 0 ? num.toLocaleString() : num.toLocaleString(undefined, { maximumFractionDigits: digits });
+        if (!Number.isFinite(num) || num === 0) return "-";
+        if (Math.abs(num) >= 1e8) return `${Math.round(num / 1e8).toLocaleString()}억`;
+        if (Math.abs(num) >= 1e4) return `${Math.round(num / 1e4).toLocaleString()}만`;
+        return `${Math.round(num).toLocaleString()}`;
     };
 
-    // 필터링
     const filtered = useMemo(() => {
         const q = (query || "").trim().toUpperCase();
         if (!q) return favorites;
@@ -186,7 +173,6 @@ export default function Favorites({
         });
     }, [favorites, query, markets]);
 
-    // combo 후보 (markets 우선)
     const comboMarkets = useMemo(() => {
         if (Array.isArray(markets) && markets.length > 0) return markets;
         if (!Array.isArray(favorites) || favorites.length === 0) return [];
@@ -219,22 +205,26 @@ export default function Favorites({
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-2">
                 <MarketCombobox markets={comboMarkets} value={selectedFromCombo} onChange={(m) => setSelectedFromCombo(m)} placeholder="코인 검색 후 선택 (예: 비트코인, BTC)" limit={12} />
                 <div className="flex gap-2">
-                    <button onClick={handleAdd} disabled={loading || !selectedFromCombo} className="px-4 py-2 bg-indigo-600 rounded hover:brightness-110 disabled:opacity-50">
-                        추가
-                    </button>
+                    <button onClick={handleAdd} disabled={loading || !selectedFromCombo} className="px-4 py-2 bg-indigo-600 rounded hover:brightness-110 disabled:opacity-50">추가</button>
                 </div>
             </div>
 
-            {/* 검색 */}
+            {/* 검색 및 액션 */}
             <div className="flex items-center gap-2">
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="관심코인 검색 (시장명 또는 이름)" className="flex-1 px-3 py-2 rounded bg-gray-800" />
-                <div className="text-sm text-white/70">총 {favorites.length}개</div>
             </div>
 
-            {/* 액션 */}
             <div className="flex gap-2">
-                <button onClick={onDeleteSelectedFavorites} className="px-3 py-1 bg-white/5 rounded hover:bg-red-600 hover:text-white">선택 삭제</button>
-                <button onClick={onDeleteAllFavorites} className="px-3 py-1 bg-white/5 rounded hover:bg-red-600 hover:text-white">전체 삭제</button>
+
+            </div>
+
+            {/* Header: '선택 삭제 / 전체 삭제' 바로 아래에 위치, 동일한 cols 사용 */}
+            <div className="px-1">
+                <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
+                    <div className="text-sm text-white/60 font-semibold">코인명</div>
+                    <div className="text-sm text-white/60 font-semibold text-right">현재가</div>
+                    <div className="text-sm text-white/60 font-semibold text-right">전일대비</div>
+                    <div className="text-sm text-white/60 font-semibold text-right">거래대금</div>
+                </div>
             </div>
 
             {/* 리스트 */}
@@ -249,6 +239,7 @@ export default function Favorites({
                         const displayName = meta?.korean_name ?? extractDisplayName(f) ?? "";
                         const symbol = marketKey.includes("-") ? marketKey.split("-")[1] : meta?.symbol ?? meta?.code ?? "";
                         const ticker = getTickerInfo(marketRaw);
+
                         const price = ticker?.price ?? null;
                         const change = ticker?.change ?? null;
                         const changeRate = ticker?.changeRate ?? null;
@@ -256,26 +247,23 @@ export default function Favorites({
                         const changeColor = change >= 0 ? "text-red-400" : "text-blue-400";
 
                         return (
-                            <div key={idx} className="flex items-center justify-between bg-[#0b0f1a]/70 p-3 rounded">
-                                <div>
-                                    <div className="font-medium">{displayName ? `${displayName} (${symbol})` : (marketKey || symbol)}</div>
-                                    <div className="text-xs text-white/60">{meta?.english_name ?? ""}</div>
-                                </div>
+                            <div key={idx} className="bg-[#0b0f1a]/70 p-3 rounded">
+                                <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
+                                    <div>
+                                        <div className="font-medium">{displayName ? `${displayName} (${symbol})` : (marketKey || symbol)}</div>
+                                    </div>
 
-                                <div className="flex items-center gap-6 text-right">
-                                    <div className="min-w-[140px]">
+                                    <div className="text-right">
                                         <div className="text-base font-semibold tabular-nums">{price !== null ? formatKRW(price) : "-"}</div>
-                                        <div className={`text-sm ${changeColor}`}>{change !== null ? `${formatKRW(change)} (${changeRate !== null ? changeRate.toFixed(2) + "%" : "-"})` : "-"}</div>
                                     </div>
 
-                                    <div className="min-w-[120px] text-right">
-                                        <div className="text-sm text-white/60">거래대금</div>
-                                        <div className="text-base font-semibold tabular-nums">{volume !== null ? formatNum(volume, 0) : "-"}</div>
+                                    <div className="text-right">
+                                        <div className={`text-sm ${changeColor}`}>{change !== null ? `${changeRate !== null ? changeRate.toFixed(2) + "%" : "-"} ` : "-"}</div>
+                                        <div className="text-xs text-white/60">{change !== null ? `${formatKRW(change)}` : ""}</div>
                                     </div>
 
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={() => onQuickAdd(marketKey)} className="px-2 py-1 bg-white/5 rounded hover:bg-white/10">자산등록</button>
-                                        <button onClick={async () => { if (!confirm(`${marketKey}을(를) 관심 목록에서 삭제하시겠습니까?`)) return; try { await onDeleteSingle(f.id ?? f._id ?? marketKey); } catch (err) { console.error("onDeleteSingle failed", err); alert("삭제 실패"); } }} className="px-2 py-1 bg-white/5 rounded hover:bg-red-600 hover:text-white">삭제</button>
+                                    <div className="text-right">
+                                        <div className="text-base font-semibold tabular-nums">{volume !== null ? formatTradingValue(volume) : "-"}</div>
                                     </div>
                                 </div>
                             </div>
@@ -309,7 +297,8 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
         const base = markets || [];
         if (!query) return base.slice(0, limit).map((m) => ({ m, score: 0 }));
 
-        // ... (combobox logic unchanged, omitted for brevity)
+        const isSymbolOnly = /^[a-z0-9]{2,10}$/i.test(queryRaw);
+
         const results = base
             .map((m) => {
                 const market = normalize(m.market);
@@ -317,7 +306,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                 const eng = normalize(m.english_name ?? m.englishName ?? "");
                 const symbol = normalize(toSymbol(m.market));
                 let score = 0;
-                if (/^[a-z0-9]{2,10}$/i.test(queryRaw) && symbol === query) score += 950;
+                if (isSymbolOnly && symbol === query) score += 950;
                 if (market === query) score += 1000;
                 if (market.includes(query)) score += 200;
                 if (symbol.includes(query)) score += 180;
@@ -352,7 +341,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
         if (e.key === "Escape") setOpen(false);
     };
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (!open) setQ("");
     }, [value, open]);
 
