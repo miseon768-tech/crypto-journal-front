@@ -69,7 +69,7 @@ export default function WalletComponent() {
     const [coinFilter, setCoinFilter] = useState("");
 
     // favorites UI state
-    const [favInput, setFavInput] = useState(""); // 입력으로 관심코인 추가
+    const [favInput, setFavInput] = useState(""); // 입력으로 관심코인 추가 (legacy, Favorites uses combo)
     const [selectedFavIds, setSelectedFavIds] = useState(new Set()); // 선택 삭제용
 
     // STOMP / tickers
@@ -77,10 +77,7 @@ export default function WalletComponent() {
     const pendingTickersRef = useRef({});
     const stompClientRef = useRef(null);
 
-    const token =
-        typeof window !== "undefined"
-            ? getStoredToken(localStorage.getItem("token"))
-            : null;
+    const token = typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null;
 
     useEffect(() => {
         if (!token) return;
@@ -246,9 +243,7 @@ export default function WalletComponent() {
 
             const cashBalanceData = getValue(5, 0);
             const cashBalance =
-                typeof cashBalanceData === "number"
-                    ? cashBalanceData
-                    : cashBalanceData?.cashBalance ?? cashBalanceData?.cash_balance ?? 0;
+                typeof cashBalanceData === "number" ? cashBalanceData : cashBalanceData?.cashBalance ?? cashBalanceData?.cash_balance ?? 0;
 
             setSummary((prev) => ({
                 ...prev,
@@ -335,11 +330,30 @@ export default function WalletComponent() {
         }
         try {
             const data = await getFavoriteCoins(token);
-            // 서버가 wrapper 응답을 줄 수 있으므로 양식에 맞춰 처리합니다.
-            // (Controller returns GetFavoriteCoinsResponse with favoriteCoinList)
-            const list = Array.isArray(data) ? data : (data?.favoriteCoinList ?? data?.favoriteCoinListDto ?? []);
-            setFavorites(Array.isArray(list) ? list : []);
-            // reset selected set
+            console.debug("fetchFavorites - raw response:", data);
+
+            let list = [];
+            if (!data) {
+                list = [];
+            } else if (Array.isArray(data)) {
+                list = data;
+            } else if (Array.isArray(data.favoriteCoinList)) {
+                list = data.favoriteCoinList;
+            } else if (Array.isArray(data.favorite_list)) {
+                list = data.favorite_list;
+            } else if (Array.isArray(data.data?.favoriteCoinList)) {
+                list = data.data.favoriteCoinList;
+            } else if (Array.isArray(data.items)) {
+                list = data.items;
+            } else if (data.favoriteCoin) {
+                list = [data.favoriteCoin];
+            } else {
+                const maybe = Object.values(data).find((v) => Array.isArray(v));
+                list = Array.isArray(maybe) ? maybe : [];
+            }
+
+            console.debug("fetchFavorites - parsed list length:", list.length, list?.[0]);
+            setFavorites(list);
             setSelectedFavIds(new Set());
         } catch (e) {
             console.error("관심 코인 불러오기 실패:", e);
@@ -398,14 +412,33 @@ export default function WalletComponent() {
 
     // ---------- Favorites handlers ----------
     const handleAddFavorite = async (marketStr) => {
-        // marketStr can be provided by Favorites (from combo) OR fallback to favInput
         const market = (marketStr ?? favInput ?? "").toString().trim();
         if (!market) return alert("추가할 관심 코인을 입력하세요 (예: KRW-BTC 또는 BTC)");
         try {
-            // 백엔드가 RequestBody로 원시 문자열(예: "KRW-BTC")을 기대하므로 문자열로 전달합니다.
-            await addFavoriteCoin(market.toUpperCase(), token);
+            console.debug("handleAddFavorite - adding market:", market);
+            const result = await addFavoriteCoin(market.toUpperCase(), token);
+            console.debug("handleAddFavorite - add result:", result);
+
+            let added = null;
+            if (result) {
+                if (result.favoriteCoin) added = result.favoriteCoin;
+                else if (result.added) added = result.added;
+                else if (result.data && result.data.favoriteCoin) added = result.data.favoriteCoin;
+                else if (typeof result === "object" && (result.market || result.tradingPair || result.id)) added = result;
+            }
+
+            if (added) {
+                setFavorites((prev) => {
+                    const keyOf = (it) => it.id ?? it._id ?? it.market ?? (it.tradingPair && it.tradingPair.market) ?? JSON.stringify(it);
+                    const addedKey = keyOf(added);
+                    const filtered = (prev || []).filter((p) => keyOf(p) !== addedKey);
+                    return [...filtered, added];
+                });
+            } else {
+                await fetchFavorites();
+            }
+
             setFavInput("");
-            await fetchFavorites();
             alert("관심 코인 추가 완료");
         } catch (e) {
             console.error("관심 코인 추가 실패", e);
@@ -445,6 +478,62 @@ export default function WalletComponent() {
         } catch (e) {
             console.error("전체 삭제 실패", e);
             alert(e?.message || "전체 삭제 실패");
+        }
+    };
+
+    // Make sure openDrawer is defined before render usage
+    const openDrawer = (market) => {
+        setSelectedMarket(market);
+        setDrawerOpen(true);
+
+        const card = assets.find((a) => a.market === market);
+        const raw = rawCoinAssets.find((a) => extractMarket(a) === market);
+
+        setEditCoinBalance(String(card?.amount ?? raw?.coinBalance ?? ""));
+        setEditAvgBuyPrice(String(card?.avgPrice ?? raw?.avgBuyPrice ?? ""));
+    };
+
+    const closeDrawer = () => {
+        setDrawerOpen(false);
+        setSelectedMarket(null);
+        setEditCoinBalance("");
+        setEditAvgBuyPrice("");
+    };
+
+    const handleSaveCoinDetail = async () => {
+        if (!selectedMarket) return;
+
+        const coinBalance = editCoinBalance === "" ? null : Number(editCoinBalance);
+        const avgBuyPrice = editAvgBuyPrice === "" ? null : Number(editAvgBuyPrice);
+
+        if (coinBalance === null || Number.isNaN(coinBalance)) return alert("보유수량을 입력하세요");
+        if (coinBalance < 0) return alert("보유수량은 0 이상이어야 합니다.");
+        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평균가(평단)를 입력하세요");
+
+        try {
+            await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyPrice }, token);
+            await fetchCoins();
+            await fetchWalletData();
+            closeDrawer();
+            alert("저장 완료");
+        } catch (e) {
+            console.error(e);
+            alert("저장 실패");
+        }
+    };
+
+    const handleDeleteCoin = async () => {
+        if (!selectedMarket) return;
+        if (!confirm(`${selectedMarket} 자산을 삭제할까요?`)) return;
+
+        try {
+            await deleteCoinAsset(selectedMarket, token);
+            await fetchCoins();
+            await fetchWalletData();
+            closeDrawer();
+        } catch (e) {
+            console.error(e);
+            alert("코인 삭제 실패");
         }
     };
 
@@ -540,10 +629,7 @@ export default function WalletComponent() {
         const q = coinFilter.trim().toUpperCase();
         if (!q) return assets;
         return assets.filter(
-            (a) =>
-                a.market?.toUpperCase().includes(q) ||
-                a.coinSymbol?.toUpperCase().includes(q) ||
-                a.coinName?.toUpperCase().includes(q)
+            (a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q) || a.coinName?.toUpperCase().includes(q)
         );
     }, [assets, coinFilter]);
 
@@ -567,14 +653,7 @@ export default function WalletComponent() {
                     </div>
                 ) : (
                     <>
-                        {activeTab === "myAssets" && (
-                            <MyAssets
-                                summary={summary}
-                                krwInput={krwInput}
-                                setKrwInput={setKrwInput}
-                                handleAddKrw={handleAddKrw}
-                            />
-                        )}
+                        {activeTab === "myAssets" && <MyAssets summary={summary} krwInput={krwInput} setKrwInput={setKrwInput} handleAddKrw={handleAddKrw} />}
 
                         {activeTab === "coins" && (
                             <MyCoins
@@ -616,7 +695,10 @@ export default function WalletComponent() {
                                 toggleSelectFavorite={toggleSelectFavorite}
                                 onDeleteSelectedFavorites={handleDeleteSelectedFavorites}
                                 onDeleteAllFavorites={handleDeleteAllFavorites}
-                                onQuickAdd={(market) => { setActiveTab("coins"); setCoinInput(market); }}
+                                onQuickAdd={(market) => {
+                                    setActiveTab("coins");
+                                    setCoinInput(market);
+                                }}
                                 onDeleteSingle={async (id) => {
                                     try {
                                         const ids = [id];
@@ -639,10 +721,7 @@ export default function WalletComponent() {
 
 function Tab({ label, active, onClick }) {
     return (
-        <button
-            onClick={onClick}
-            className={`pb-3 text-base transition ${active ? "border-b-2 border-white font-semibold text-white" : "text-white/70 hover:text-white"}`}
-        >
+        <button onClick={onClick} className={`pb-3 text-base transition ${active ? "border-b-2 border-white font-semibold text-white" : "text-white/70 hover:text-white"}`}>
             {label}
         </button>
     );
