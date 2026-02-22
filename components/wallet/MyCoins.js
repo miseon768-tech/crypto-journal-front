@@ -1,33 +1,37 @@
-import React, { useEffect, useMemo, useState } from "react";
-
-/**
- * MyCoins (보유코인) — 수정판
- * - 새로운 prop: tickers (map: market -> price)
- * - 우선 순위: coin.evalAmount (서버) -> tickers 기반 계산 -> buy+profit 폴백
- */
+import React, {useEffect, useMemo, useState} from "react";
 
 export default function MyCoins({
                                     markets = [],
                                     coinInput = "",
-                                    setCoinInput = () => {},
+                                    setCoinInput = () => {
+                                    },
                                     coinBalanceInput = "",
-                                    setCoinBalanceInput = () => {},
+                                    setCoinBalanceInput = () => {
+                                    },
                                     coinAvgPriceInput = "",
-                                    setCoinAvgPriceInput = () => {},
-                                    handleAddCoin = () => {},
+                                    setCoinAvgPriceInput = () => {
+                                    },
+                                    handleAddCoin = () => {
+                                    },
                                     assets = [],
                                     rawCoinAssets = [],
                                     filteredAssets = [],
-                                    openDrawer = () => {},
+                                    openDrawer = () => {
+                                    },
                                     drawerOpen = false,
                                     selectedMarket = null,
-                                    closeDrawer = () => {},
-                                    onSave = () => {},
-                                    onDelete = () => {},
+                                    closeDrawer = () => {
+                                    },
+                                    onSave = () => {
+                                    },
+                                    onDelete = () => {
+                                    },
                                     editCoinBalance = "",
-                                    setEditCoinBalance = () => {},
+                                    setEditCoinBalance = () => {
+                                    },
                                     editAvgBuyPrice = "",
-                                    setEditAvgBuyPrice = () => {},
+                                    setEditAvgBuyPrice = () => {
+                                    },
                                     tickers = {}, // <-- 새 prop: { "KRW-BTC": 60000000, ... }
                                 }) {
     const hasAssets = Array.isArray(filteredAssets) && filteredAssets.length > 0;
@@ -38,7 +42,7 @@ export default function MyCoins({
     };
     const fNum = (n) => {
         const num = Number(n || 0);
-        return !Number.isFinite(num) ? "0" : num % 1 === 0 ? num.toLocaleString() : num.toLocaleString(undefined, { maximumFractionDigits: 8 });
+        return !Number.isFinite(num) ? "0" : num % 1 === 0 ? num.toLocaleString() : num.toLocaleString(undefined, {maximumFractionDigits: 8});
     };
 
     const resolveDisplayName = (coin) => {
@@ -217,7 +221,8 @@ export default function MyCoins({
                                         {/* 1행: 평가손익 라벨 */}
                                         <div className="text-base font-semibold text-white/60 self-center">평가손익</div>
                                         {/* 1행: 평가손익 값 */}
-                                        <div className={`text-base font-semibold tabular-nums text-right ${profitColor} self-center`}>
+                                        <div
+                                            className={`text-base font-semibold tabular-nums text-right ${profitColor} self-center`}>
                                             {Number.isFinite(profitNum) ? `${Math.round(profitNum).toLocaleString()}` : "-"}
                                         </div>
 
@@ -234,13 +239,15 @@ export default function MyCoins({
                                 <div className="mt-3 grid grid-cols-2">
                                     <div className="justify-self-end text-right">
                                         <div className="text-base leading-tight">
-                                            {fNum(toNumber(coin?.amount) ?? coin?.amount)} <span className="text-base text-white/60">{coin?.coinSymbol}</span>
+                                            {fNum(toNumber(coin?.amount) ?? coin?.amount)} <span
+                                            className="text-base text-white/60">{coin?.coinSymbol}</span>
                                         </div>
                                         <div className="text-sm text-white/60 mt-1">보유수량</div>
                                     </div>
 
                                     <div className="justify-self-end text-right">
-                                        <div className="text-base leading-tight">{fKRW(toNumber(coin?.avgPrice) ?? coin?.avgPrice)}</div>
+                                        <div
+                                            className="text-base leading-tight">{fKRW(toNumber(coin?.avgPrice) ?? coin?.avgPrice)}</div>
                                         <div className="text-sm text-white/60 mt-1">매수평균가</div>
                                     </div>
                                 </div>
@@ -286,7 +293,10 @@ export default function MyCoins({
 /* -------------------------
    MarketCombobox (간단 포함)
    ------------------------- */
-function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12 }) {
+function MarketCombobox({
+                            markets = [], value = "", onChange = () => {
+    }, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12
+                        }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
 
@@ -305,7 +315,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
         const queryRaw = q.trim();
         const query = normalize(queryRaw);
         const base = markets || [];
-        if (!query) return base.slice(0, limit).map((m) => ({ m, score: 0 }));
+        if (!query) return base.slice(0, limit).map((m) => ({m, score: 0}));
 
         const isSymbolOnly = /^[a-z0-9]{2,10}$/i.test(queryRaw);
 
@@ -322,7 +332,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                 if (symbol.includes(query)) score += 180;
                 if (kor.includes(query)) score += 160;
                 if (eng.includes(query)) score += 140;
-                return { m, score };
+                return {m, score};
             })
             .filter((x) => x.score > 0)
             .sort((a, b) => b.score - a.score)
@@ -372,13 +382,15 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 
             {open && (
                 <>
-                    <div className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#0b0f1a] overflow-hidden">
+                    <div
+                        className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#0b0f1a] overflow-hidden">
                         <div className="max-h-72 overflow-auto">
                             {q.trim() && candidates.length === 0 ? (
                                 <div className="px-3 py-2 text-sm text-white/60">검색 결과 없음</div>
                             ) : (
                                 candidates.map((m) => (
-                                    <button type="button" key={m.market} onClick={() => pick(m)} className="w-full px-3 py-2 text-left hover:bg-white/5">
+                                    <button type="button" key={m.market} onClick={() => pick(m)}
+                                            className="w-full px-3 py-2 text-left hover:bg-white/5">
                                         <div className="text-sm font-semibold">{label(m)}</div>
                                     </button>
                                 ))
@@ -390,7 +402,8 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                         </div>
                     </div>
 
-                    <button type="button" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} aria-label="close" />
+                    <button type="button" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)}
+                            aria-label="close"/>
                 </>
             )}
         </div>
@@ -400,7 +413,18 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 /* -------------------------
    CoinDetailDrawer (간단 포함)
    ------------------------- */
-function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBalance, setEditCoinBalance, editAvgBuyPrice, setEditAvgBuyPrice, selectedCard }) {
+function CoinDetailDrawer({
+                              open,
+                              market,
+                              onClose,
+                              onSave,
+                              onDelete,
+                              editCoinBalance,
+                              setEditCoinBalance,
+                              editAvgBuyPrice,
+                              setEditAvgBuyPrice,
+                              selectedCard
+                          }) {
     if (!open) return null;
 
     const profitNum = Number(selectedCard?.profit || 0);
@@ -412,8 +436,9 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
 
     return (
         <div className="fixed inset-0 z-50">
-            <button className="absolute inset-0 bg-black/60" onClick={onClose} aria-label="close" />
-            <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-[#0b0f1a] border-l border-white/10 p-5 overflow-y-auto">
+            <button className="absolute inset-0 bg-black/60" onClick={onClose} aria-label="close"/>
+            <div
+                className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-[#0b0f1a] border-l border-white/10 p-5 overflow-y-auto">
                 <div className="flex items-start justify-between">
                     <div>
                         <div className="text-lg font-semibold">{market}</div>
@@ -424,11 +449,14 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
                 <div className="mt-5 grid grid-cols-2 gap-3">
                     <div className="rounded-xl bg-white/5 border border-white/10 p-4">
                         <div className="text-xs text-white/50">평가손익</div>
-                        <div className={`mt-1 text-lg font-semibold tabular-nums ${profitColor}`}>{profitNum.toLocaleString()}</div>
+                        <div
+                            className={`mt-1 text-lg font-semibold tabular-nums ${profitColor}`}>{profitNum.toLocaleString()}</div>
                     </div>
                     <div className="rounded-xl bg-white/5 border border-white/10 p-4">
                         <div className="text-xs text-white/50">수익률</div>
-                        <div className={`mt-1 text-lg font-semibold tabular-nums ${rateColor}`}>{profitRateNum.toFixed(2)}%</div>
+                        <div
+                            className={`mt-1 text-lg font-semibold tabular-nums ${rateColor}`}>{profitRateNum.toFixed(2)}%
+                        </div>
                     </div>
                 </div>
 
@@ -440,21 +468,24 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
 
                 <div className="mt-6 space-y-3">
                     <Field label="보유수량">
-                        <input value={editCoinBalance} onChange={(e) => setEditCoinBalance(e.target.value)} className="w-full px-3 py-2 rounded bg-white/10" placeholder="예: 0.0123" />
+                        <input value={editCoinBalance} onChange={(e) => setEditCoinBalance(e.target.value)}
+                               className="w-full px-3 py-2 rounded bg-white/10" placeholder="예: 0.0123"/>
                     </Field>
 
                     <Field label="매수평균가(원)">
-                        <input value={editAvgBuyPrice} onChange={(e) => setEditAvgBuyPrice(e.target.value)} className="w-full px-3 py-2 rounded bg-white/10" placeholder="예: 100000000" />
+                        <input value={editAvgBuyPrice} onChange={(e) => setEditAvgBuyPrice(e.target.value)}
+                               className="w-full px-3 py-2 rounded bg-white/10" placeholder="예: 100000000"/>
                     </Field>
                 </div>
 
                 <div className="mt-6 flex gap-2">
-                    <button onClick={onSave} className="flex-1 px-4 py-2 rounded bg-indigo-500 font-semibold">저장</button>
+                    <button onClick={onSave} className="flex-1 px-4 py-2 rounded bg-indigo-500 font-semibold">저장
+                    </button>
                     <button onClick={onDelete} className="px-4 py-2 rounded bg-red-600/90 font-semibold">삭제</button>
                 </div>
 
                 <div className="mt-4 text-xs text-white/50 leading-relaxed">
-                    • 매수금액은 서버에서 자동 계산되어 저장���니다.<br />
+                    • 매수금액은 서버에서 자동 계산되어 저장���니다.<br/>
                     • 업비트 화면 값처럼 <b>현재값을 그대로 덮어쓰기</b> 방식���에요.
                 </div>
             </div>
@@ -462,7 +493,7 @@ function CoinDetailDrawer({ open, market, onClose, onSave, onDelete, editCoinBal
     );
 }
 
-function Field({ label, children }) {
+function Field({label, children}) {
     return (
         <div>
             <div className="text-xs text-white/60 mb-1">{label}</div>
