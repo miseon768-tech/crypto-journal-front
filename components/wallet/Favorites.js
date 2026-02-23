@@ -274,7 +274,7 @@ export default function Favorites({
     const formatKRW = (n) => {
         const num = Number(n);
         if (!Number.isFinite(num)) return "-";
-        return `${Math.round(num).toLocaleString()} 원`;
+        return `${Math.round(num).toLocaleString()} KRW`;
     };
 
     const formatTradingValue = (n) => {

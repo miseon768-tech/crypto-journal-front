@@ -29,7 +29,7 @@ export default function MyAssets({summary, krwInput, setKrwInput, handleAddKrw})
             <section className="rounded-2xl bg-white/5 p-5 border border-white/5">
                 <div className="mt-4 grid grid-cols-2 gap-6">
                     <div>
-                        <div className="text-sm text-white/60">보유현금</div>
+                        <div className="text-sm text-white/60">보유 KRW</div>
                         <div className="mt-2 text-4xl font-semibold tabular-nums">
                             {Number(summary.cashBalance || 0).toLocaleString()}
                         </div>
@@ -44,13 +44,13 @@ export default function MyAssets({summary, krwInput, setKrwInput, handleAddKrw})
                 </div>
 
                 <div className="mt-6 grid grid-cols-2 gap-x-10 gap-y-3 text-sm">
-                    <MetricRow label="총 매수" value={`${Number(summary.totalBuyAmount || 0).toLocaleString()} 원`}/>
-                    <MetricRow label="평가손익" value={`${Number(summary.totalProfit || 0).toLocaleString()} 원`}
+                    <MetricRow label="총 매수" value={`${Number(summary.totalBuyAmount || 0).toLocaleString()} KRW`}/>
+                    <MetricRow label="평가손익" value={`${Number(summary.totalProfit || 0).toLocaleString()} KRW`}
                                valueClass={Number(summary.totalProfit || 0) >= 0 ? "text-red-400" : "text-blue-400"}/>
-                    <MetricRow label="총 평가" value={`${Number(summary.totalEval || 0).toLocaleString()} 원`}/>
+                    <MetricRow label="총 평가" value={`${Number(summary.totalEval || 0).toLocaleString()} KRW`}/>
                     <MetricRow label="수익률" value={`${Number(summary.profitRate || 0).toLocaleString()}%`}
                                valueClass={Number(summary.profitRate || 0) >= 0 ? "text-red-400" : "text-blue-400"}/>
-                    <MetricRow label="주문가능" value={`${Number(summary.cashBalance || 0).toLocaleString()} 원`}/>
+                    <MetricRow label="주문가능" value={`${Number(summary.cashBalance || 0).toLocaleString()} KRW`}/>
                     <div/>
                 </div>
             </section>
