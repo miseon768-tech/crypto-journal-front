@@ -38,7 +38,7 @@ export default function MyCoins({
 
     const fKRW = (n) => {
         const num = Number(n || 0);
-        return !Number.isFinite(num) || num === 0 ? "0 KRW" : `${Math.round(num).toLocaleString()} KRW`;
+        return !Number.isFinite(num) || num === 0 ? "0 원" : `${Math.round(num).toLocaleString()} 원`;
     };
     const fNum = (n) => {
         const num = Number(n || 0);
