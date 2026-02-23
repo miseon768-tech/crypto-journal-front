@@ -174,7 +174,7 @@ export default function WalletComponent() {
             reconnectDelay: 5000,
             heartbeatIncoming: 0,
             heartbeatOutgoing: 20000,
-            // 항상 최신 token 상태를 사용 (closure capture 되는 token은 state임)
+            // 항상 최신 token 상태를 ���용 (closure capture 되는 token은 state임)
             connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
             onConnect: () => {
                 // subscribe to ticker topic
@@ -612,7 +612,7 @@ export default function WalletComponent() {
         if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평균가(평단)를 입력하세요");
 
         try {
-            await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyPrice }, token);
+            await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyAmount: avgBuyPrice }, token);
             await fetchCoins();
             await fetchWalletData();
             closeDrawer();
@@ -788,7 +788,7 @@ export default function WalletComponent() {
                             />
                         )}
 
-                        {activeTab === "portfolio" && <Portfolio portfolio={portfolio} />}
+                        {activeTab === "portfolio" && <Portfolio portfolio={portfolio} markets={markets} />}
 
                         {activeTab === "favorites" && (
                             <Favorites
