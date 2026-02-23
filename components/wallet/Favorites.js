@@ -113,7 +113,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 }
 
 /* -------------------------
-   Favorites component (모양 유지, 데이터 파싱/부호 처리만 강화)
+   Favorites component (백만 단위 고정 표시)
 ------------------------- */
 export default function Favorites({
                                       markets = [],
@@ -127,7 +127,6 @@ export default function Favorites({
 
     const cols = "1fr 220px 140px 140px";
 
-    // 숫자 변환 유틸 (문자열/숫자/통화기호 대응)
     const asNumber = (v) => {
         if (v == null) return null;
         if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -137,34 +136,106 @@ export default function Favorites({
         return Number.isFinite(n) ? n : null;
     };
 
-    // 개선된 파서: 무조건 prev - price 로 전일대비 계산 (요청대로)
-    const getTickerInfoFromPayload = (t) => {
+    // formatTradingValue: 항상 '백만' 단위로 표시 (반올림)
+    const formatTradingValue = (n) => {
+        const num = Number(n);
+        if (!Number.isFinite(num) || num === 0) return "-";
+        const millions = Math.round(num / 1_000_000);
+        return `${millions.toLocaleString()}백만`;
+    };
+
+    // extractPayloadObject: 문자열형(sockjs) 및 중첩(raw, _raw) 처리
+    const extractPayloadObject = (raw) => {
+        if (raw == null) return null;
+
+        if (typeof raw === "object") {
+            if (raw.raw && typeof raw.raw === "object") return raw.raw;
+            if (raw._raw && typeof raw._raw === "object") return raw._raw;
+            if (raw.trade_price !== undefined || raw.tradePrice !== undefined || raw.price !== undefined) {
+                return raw;
+            }
+            return raw;
+        }
+
+        if (typeof raw === "string") {
+            let s = raw.trim();
+            try {
+                if (s.startsWith('a[')) {
+                    const arr = JSON.parse(s);
+                    if (Array.isArray(arr) && arr.length > 0) s = arr[0];
+                }
+            } catch (e) {}
+            const first = s.indexOf('{');
+            const last = s.lastIndexOf('}');
+            if (first !== -1 && last !== -1 && last > first) {
+                try {
+                    const jsonText = s.substring(first, last + 1);
+                    const obj = JSON.parse(jsonText);
+                    if (obj.raw && typeof obj.raw === "object") return obj.raw;
+                    return obj;
+                } catch (e) {
+                    return null;
+                }
+            }
+        }
+
+        return null;
+    };
+
+    // accTradePrice24h 검색 헬퍼
+    const getAccPrice24h = (t) => {
         if (!t) return null;
 
-        // 가격 관련
+        const candidatesToCheck = [];
+
+        candidatesToCheck.push(t.acc_trade_price_24h, t.accTradePrice24h, t.acc_trade_price, t.accTradePrice, t.acc_trade_value_24h, t.accTradeValue24h, t.acc_trade_value, t.accTradeValue);
+
+        const nestedKeys = ['raw', '_raw', 'payload', 'data'];
+        nestedKeys.forEach(k => {
+            if (t[k] && typeof t[k] === "object") {
+                candidatesToCheck.push(t[k].acc_trade_price_24h, t[k].accTradePrice24h, t[k].acc_trade_price, t[k].accTradePrice, t[k].acc_trade_value_24h, t[k].accTradeValue24h);
+            }
+        });
+
+        try {
+            Object.entries(t).forEach(([k, v]) => {
+                if (!k || v == null) return;
+                const lk = String(k).toLowerCase();
+                if (/acc|trade|value|price/.test(lk)) candidatesToCheck.push(v);
+            });
+        } catch (e) {}
+
+        const nums = candidatesToCheck
+            .map(asNumber)
+            .filter(v => v != null && Number.isFinite(v) && v > 0);
+
+        if (nums.length === 0) return null;
+        return Math.max(...nums);
+    };
+
+    // getTickerInfoFromPayload: robust extraction
+    const getTickerInfoFromPayload = (tRaw) => {
+        const t = extractPayloadObject(tRaw) ?? tRaw;
+        if (!t || typeof t !== "object") return null;
+
         const price = asNumber(t.tradePrice ?? t.trade_price ?? t.price ?? t.lastPrice ?? t.close);
         const prev = asNumber(t.prevClosingPrice ?? t.prev_closing_price ?? t.prevClose ?? t.prev_close ?? t.open);
 
-        // provider가 줄 수 있는 값들
         const rawSigned = asNumber(t.signedChangePrice ?? t.signed_change_price ?? t.signedChange ?? t.signed_change);
         const rawAbsChange = asNumber(t.changePrice ?? t.change_price ?? t.change ?? t.change_amount);
 
-        // 문자열 필드로 방향 읽기 (RISE/FALL/UP/DOWN 등)
-        const changeStr = (t.change ?? t.change_type ?? t.change_flag ?? t.askBid ?? "").toString().toUpperCase();
+        const changeStr = (t.change ?? t.change_type ?? t.change_flag ?? t.askBid ?? t.ask_bid ?? "").toString().toUpperCase();
         let dir = null;
         if (changeStr) {
             if (changeStr.includes("RISE") || changeStr.includes("UP") || changeStr.includes("PLUS") || changeStr.includes("BUY")) dir = "UP";
             else if (changeStr.includes("FALL") || changeStr.includes("DOWN") || changeStr.includes("MINUS") || changeStr.includes("SELL")) dir = "DOWN";
         }
 
-        // 1) 무조건 prev - price 로 전일대비 계산 (요청 사항)
         const computedChange = (price != null && prev != null) ? (prev - price) : null;
 
-        // 2) signedChange 결정 우선순위: computed > rawSigned > rawAbsChange
         let signedChange = null;
-        if (computedChange != null) {
-            signedChange = computedChange;
-        } else if (rawSigned != null) {
+        if (computedChange != null) signedChange = computedChange;
+        else if (rawSigned != null) {
             if (rawSigned < 0) signedChange = rawSigned;
             else if (dir === "DOWN") signedChange = -Math.abs(rawSigned);
             else signedChange = rawSigned;
@@ -172,16 +243,12 @@ export default function Favorites({
             if (dir === "DOWN") signedChange = -Math.abs(rawAbsChange);
             else if (dir === "UP") signedChange = Math.abs(rawAbsChange);
             else signedChange = rawAbsChange;
-        } else {
-            signedChange = null;
-        }
+        } else signedChange = null;
 
-        // 3) changeRate: computed based on signedChange / prev (percent)
         let rawRate = asNumber(t.changeRate ?? t.change_rate ?? t.signedChangeRate ?? t.signed_change_rate ?? t.percent ?? t.percent_change);
         let changeRatePct = null;
         if (rawRate != null) {
             changeRatePct = Math.abs(rawRate) < 1 ? rawRate * 100 : rawRate;
-            // if rawRate had sign, preserve; otherwise if we have signedChange, set sign accordingly
             if (rawRate > 0) changeRatePct = Math.abs(changeRatePct);
             else if (rawRate < 0) changeRatePct = -Math.abs(changeRatePct);
             else if (signedChange != null && prev != null && prev !== 0) changeRatePct = (signedChange / prev) * 100;
@@ -189,32 +256,26 @@ export default function Favorites({
             changeRatePct = (signedChange / prev) * 100;
         }
 
-        // tradingValue: 우선 accTradePrice24h -> accTradePrice -> accTradeVolume24h * price -> tradeVolume * price
-        let tradingValue = asNumber(
-            t.accTradePrice24h ??
-            t.acc_trade_price_24h ??
-            t.accTradePrice ??
-            t.acc_trade_price ??
-            t.acc_trade_value_24h ??
-            t.accTradeValue24h
-        );
-
-        if ((tradingValue == null || tradingValue === 0) && (t.accTradeVolume24h || t.acc_trade_volume_24h || t.accTradeVolume || t.acc_trade_volume)) {
-            const vol = asNumber(t.accTradeVolume24h ?? t.acc_trade_volume_24h ?? t.accTradeVolume ?? t.acc_trade_volume);
-            if (vol != null && price != null) tradingValue = vol * price;
+        const marketKeyFromPayload = String(t.market ?? t.code ?? t.marketCode ?? t.product_code ?? t.symbol ?? t.marketName ?? "").toUpperCase();
+        let baseCurrency = "";
+        if (marketKeyFromPayload.includes("-")) baseCurrency = marketKeyFromPayload.split("-")[0];
+        else {
+            if (marketKeyFromPayload.startsWith("KRW") || marketKeyFromPayload.endsWith("KRW")) baseCurrency = "KRW";
         }
+        const isKRWMarket = baseCurrency === "KRW";
 
-        if ((tradingValue == null || tradingValue === 0) && (t.tradeVolume || t.trade_volume) && price != null) {
-            const rv = asNumber(t.tradeVolume ?? t.trade_volume);
-            if (rv != null) tradingValue = rv * price;
+        let accPrice24h = null;
+        if (isKRWMarket) {
+            accPrice24h = getAccPrice24h(t);
         }
 
         return {
             price: price ?? null,
-            // 저장/전달되는 값은 무조건 prev - price (요청사항)
             change: signedChange ?? null,
             changeRate: changeRatePct ?? null,
-            tradingValue: tradingValue ?? null, // KRW
+            tradingValue: accPrice24h ?? null,
+            accTradePrice24h: accPrice24h ?? null,
+            _raw: t,
         };
     };
 
@@ -228,7 +289,6 @@ export default function Favorites({
         return s;
     };
 
-    // tickers map에서 마켓에 맞는 raw payload 또는 숫자를 찾아 정규화된 info 반환
     const getTickerInfo = (marketRaw) => {
         const key = normalizeMarketKey(marketRaw);
         if (!key) return null;
@@ -262,11 +322,11 @@ export default function Favorites({
             }
         }
 
-        if (raw == null) return null;
+        if (!raw) return null;
 
         if (typeof raw === "number") {
             const price = asNumber(raw);
-            return { price: price ?? null, change: null, changeRate: null, tradingValue: null };
+            return { price: price ?? null, change: null, changeRate: null, tradingValue: null, accTradePrice24h: null, _raw: raw };
         }
 
         return getTickerInfoFromPayload(raw);
@@ -276,12 +336,6 @@ export default function Favorites({
         const num = Number(n);
         if (!Number.isFinite(num)) return "-";
         return `${Math.round(num).toLocaleString()} 원`;
-    };
-
-    const formatTradingValue = (n) => {
-        const num = Number(n);
-        if (!Number.isFinite(num) || num === 0) return "-";
-        return `${Math.round(num / 1_000_000).toLocaleString()}백만`;
     };
 
     const filtered = useMemo(() => {
@@ -335,16 +389,14 @@ export default function Favorites({
                 filtered.map((f, idx) => {
                     const ticker = getTickerInfo(f.market);
                     const price = ticker?.price;
-                    const change = ticker?.change; // 저장된 값: prev - price (요청대로)
-                    const changeRate = ticker?.changeRate; // percent based on prev - price
-                    const tradingValue = ticker?.tradingValue;
+                    const change = ticker?.change; // stored as prev - price
+                    const changeRate = ticker?.changeRate;
+                    const accPrice24h = ticker?.accTradePrice24h;
 
-                    // UI는 일반적인 '지금가가 오르면 +로 보이는' 의미로 표시하려면
-                    // 화면에 보일 값은 stored change의 부호를 반전시켜 사용합니다.
+                    // UI 표시: stored change은 prev-price 이므로 화면에는 반전해서 보여주기
                     const displayChange = change != null ? -change : null;
                     const displayRate = changeRate != null ? -changeRate : null;
 
-                    // 색상/부호는 화면 표시값(displayChange)을 기준으로 판단
                     const changeColor = displayChange == null ? "text-white/60" : displayChange >= 0 ? "text-red-400" : "text-blue-400";
                     const displayRateText = displayRate != null ? `${displayRate >= 0 ? "+" : ""}${displayRate.toFixed(2)}%` : "-";
 
@@ -359,7 +411,7 @@ export default function Favorites({
 
                                 <div className={`text-right ${changeColor}`}>{displayRateText}</div>
 
-                                <div className="text-right">{tradingValue != null ? formatTradingValue(tradingValue) : "-"}</div>
+                                <div className="text-right">{accPrice24h != null ? formatTradingValue(accPrice24h) : "-"}</div>
                             </div>
                         </div>
                     );

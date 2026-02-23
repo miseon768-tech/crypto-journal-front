@@ -485,8 +485,8 @@ function CoinDetailDrawer({
                 </div>
 
                 <div className="mt-4 text-xs text-white/50 leading-relaxed">
-                    • 매수금액은 서버에서 자동 계산되어 저장���니다.<br/>
-                    • 업비트 화면 값처럼 <b>현재값을 그대로 덮어쓰기</b> 방식���에요.
+                    • 매수금액은 서버에서 자동 계산되어 저장됩니다.<br/>
+                    • 업비트 화면 값처럼 <b>현재값을 그대로 덮어쓰기</b> 방식이에요.
                 </div>
             </div>
         </div>
