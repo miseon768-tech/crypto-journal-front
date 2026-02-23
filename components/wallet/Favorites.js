@@ -1,21 +1,6 @@
 import React, { useMemo, useState } from "react";
 
-/**
- * Favorites.jsx
- * - 입력창은 MarketCombobox (MyCoins와 동일 방식)으로 변경한 채,
- *   현재가 / 전일대비 / 거래대금 추출 로직은 강화된 버전으로 복구했습니다.
- *
- * - 부모에서 전달해야 할 props:
- *   markets, favorites, tickers, onAddFavorite, loading
- *
- * 변경 요약:
- * - MarketCombobox: 입력창 대체 (자동완성)
- * - getTickerInfo: asNumber + getTickerInfoFromPayload를 사용하여 다양한 필드명과 문자열/숫자 타입 모두 대응
- */
-
-/* -------------------------
-   MarketCombobox (inline)
-------------------------- */
+/* MarketCombobox (inline, 레이아웃/모양은 그대로 유지) */
 function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12 }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
@@ -128,7 +113,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 }
 
 /* -------------------------
-   Favorites component
+   Favorites component (모양 유지, 데이터 파싱/부호 처리만 강화)
 ------------------------- */
 export default function Favorites({
                                       markets = [],
@@ -152,38 +137,83 @@ export default function Favorites({
         return Number.isFinite(n) ? n : null;
     };
 
-    // payload에서 price / prev / change / changeRate / tradingValue 추출
+    // 개선된 파서: 부호 결정 우선순위(price-prev -> change string -> provider signed) 및 rate normalization
     const getTickerInfoFromPayload = (t) => {
         if (!t) return null;
 
+        // 가격 관련
         const price = asNumber(t.tradePrice ?? t.trade_price ?? t.price ?? t.lastPrice ?? t.close);
         const prev = asNumber(t.prevClosingPrice ?? t.prev_closing_price ?? t.prevClose ?? t.prev_close ?? t.open);
 
-        let change = asNumber(t.changePrice ?? t.change_price ?? t.signedChangePrice ?? t.diff ?? t.delta);
-        if (change == null && price != null && prev != null) change = price - prev;
+        // provider가 줄 수 있는 값들
+        const rawSigned = asNumber(t.signedChangePrice ?? t.signed_change_price ?? t.signedChange ?? t.signed_change);
+        const rawAbsChange = asNumber(t.changePrice ?? t.change_price ?? t.change ?? t.change_amount);
 
-        let changeRate = asNumber(t.changeRate ?? t.change_rate ?? t.signedChangeRate ?? t.percent ?? t.percent_change);
-        if ((changeRate == null || changeRate === 0) && change != null && prev != null && prev !== 0) {
-            changeRate = (change / prev) * 100;
+        // 1) 가능하면 price - prev 로 정확한 signed change 계산 (우선)
+        const computedChange = (price != null && prev != null) ? (price - prev) : null;
+
+        // 2) 문자열 필드로 방향 읽기 (RISE/FALL/UP/DOWN 등)
+        const changeStr = (t.change ?? t.change_type ?? t.change_flag ?? t.askBid ?? "").toString().toUpperCase();
+        let isPositive = null;
+        if (computedChange != null) {
+            isPositive = computedChange > 0 ? true : (computedChange < 0 ? false : null);
+        } else if (changeStr) {
+            if (changeStr.includes("RISE") || changeStr.includes("UP") || changeStr.includes("PLUS") || changeStr.includes("BUY")) isPositive = true;
+            else if (changeStr.includes("FALL") || changeStr.includes("DOWN") || changeStr.includes("MINUS") || changeStr.includes("SELL")) isPositive = false;
         }
 
+        // 3) 최종 signed change 결정: computed > provider signed > abs
+        let signedChange = null;
+        if (computedChange != null) {
+            signedChange = computedChange;
+        } else if (rawSigned != null) {
+            if (isPositive === true) signedChange = Math.abs(rawSigned);
+            else if (isPositive === false) signedChange = -Math.abs(rawSigned);
+            else signedChange = rawSigned;
+        } else if (rawAbsChange != null) {
+            if (isPositive === true) signedChange = Math.abs(rawAbsChange);
+            else if (isPositive === false) signedChange = -Math.abs(rawAbsChange);
+            else signedChange = rawAbsChange;
+        } else {
+            signedChange = null;
+        }
+
+        // changeRate 정규화: provider가 ratio(0.0004)로 보내면 *100 해서 percent로 바꿈. 부호는 isPositive 기준 보정.
+        let rawRate = asNumber(t.changeRate ?? t.change_rate ?? t.signedChangeRate ?? t.signed_change_rate ?? t.percent ?? t.percent_change);
+        let changeRatePct = null;
+        if (rawRate != null) {
+            changeRatePct = Math.abs(rawRate) < 1 ? rawRate * 100 : rawRate;
+            if (isPositive === true) changeRatePct = Math.abs(changeRatePct);
+            else if (isPositive === false) changeRatePct = -Math.abs(changeRatePct);
+        } else if (signedChange != null && prev != null && prev !== 0) {
+            changeRatePct = (signedChange / prev) * 100;
+        }
+
+        // tradingValue: 우선 accTradePrice24h -> accTradePrice -> accTradeVolume24h * price -> tradeVolume * price
         let tradingValue = asNumber(
             t.accTradePrice24h ??
             t.acc_trade_price_24h ??
             t.accTradePrice ??
             t.acc_trade_price ??
-            t.accTradeVolume24h ??
-            t.acc_trade_volume_24h ??
-            t.volume24h ??
-            t.tradeVolume ??
-            t.trade_volume
+            t.acc_trade_value_24h ??
+            t.accTradeValue24h
         );
+
+        if ((tradingValue == null || tradingValue === 0) && (t.accTradeVolume24h || t.acc_trade_volume_24h || t.accTradeVolume || t.acc_trade_volume)) {
+            const vol = asNumber(t.accTradeVolume24h ?? t.acc_trade_volume_24h ?? t.accTradeVolume ?? t.acc_trade_volume);
+            if (vol != null && price != null) tradingValue = vol * price;
+        }
+
+        if ((tradingValue == null || tradingValue === 0) && (t.tradeVolume || t.trade_volume) && price != null) {
+            const rv = asNumber(t.tradeVolume ?? t.trade_volume);
+            if (rv != null) tradingValue = rv * price;
+        }
 
         return {
             price: price ?? null,
-            change: change ?? null,
-            changeRate: changeRate ?? null,
-            tradingValue: tradingValue ?? null,
+            change: signedChange ?? null, // signed value (positive => up)
+            changeRate: changeRatePct ?? null, // percent with sign
+            tradingValue: tradingValue ?? null, // KRW
         };
     };
 
@@ -197,12 +227,11 @@ export default function Favorites({
         return s;
     };
 
-    // 메인: tickers map에서 마켓에 맞는 raw payload 또는 숫자를 찾아 정규화된 info 반환
+    // tickers map에서 마켓에 맞는 raw payload 또는 숫자를 찾아 정규화된 info 반환
     const getTickerInfo = (marketRaw) => {
         const key = normalizeMarketKey(marketRaw);
         if (!key) return null;
 
-        // 후보 키들
         const candidates = [
             key,
             key.replace("-", ""),
@@ -218,7 +247,6 @@ export default function Favorites({
             }
         }
 
-        // fallback: suffix/contains 탐색
         if (!raw) {
             const symbol = key.includes("-") ? key.split("-")[1] : key;
             if (symbol) {
@@ -235,13 +263,11 @@ export default function Favorites({
 
         if (raw == null) return null;
 
-        // raw가 숫자면 price로 간주
         if (typeof raw === "number") {
             const price = asNumber(raw);
             return { price: price ?? null, change: null, changeRate: null, tradingValue: null };
         }
 
-        // 객체(업비트 TickerResponse / TradeResponse 등)
         return getTickerInfoFromPayload(raw);
     };
 
@@ -312,7 +338,9 @@ export default function Favorites({
                     const changeRate = ticker?.changeRate;
                     const tradingValue = ticker?.tradingValue;
 
+                    // 색상/부호는 change (signed) 기준으로 판단 — 모양은 그대로 유지
                     const changeColor = change == null ? "text-white/60" : change >= 0 ? "text-red-400" : "text-blue-400";
+                    const displayRate = changeRate != null ? `${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(2)}%` : "-";
 
                     return (
                         <div key={`${f.market ?? f.id}-${idx}`} className="bg-[#0b0f1a]/70 p-3 rounded">
@@ -323,7 +351,7 @@ export default function Favorites({
 
                                 <div className="text-right">{price != null ? formatKRW(price) : "-"}</div>
 
-                                <div className={`text-right ${changeColor}`}>{changeRate != null ? `${changeRate.toFixed(2)}%` : "-"}</div>
+                                <div className={`text-right ${changeColor}`}>{displayRate}</div>
 
                                 <div className="text-right">{tradingValue != null ? formatTradingValue(tradingValue) : "-"}</div>
                             </div>
