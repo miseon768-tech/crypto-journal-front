@@ -180,6 +180,7 @@ export default function WalletComponent() {
                 // subscribe to ticker topic
                 client.subscribe("/topic/ticker", (msg) => {
                     if (!msg || !msg.body) return;
+
                     try {
                         const payload = JSON.parse(msg.body);
 
@@ -200,7 +201,12 @@ export default function WalletComponent() {
                             payload.close ??
                             null;
 
-                        const prevCloseRaw = payload.prevClose ?? payload.prev_close ?? payload.open ?? payload.yesterdayPrice ?? null;
+                        const prevCloseRaw =
+                            payload.prevClose ??
+                            payload.prev_close ??
+                            payload.open ??
+                            payload.yesterdayPrice ??
+                            null;
 
                         const volumeRaw =
                             payload.volume ??
@@ -211,28 +217,47 @@ export default function WalletComponent() {
                             payload.changeAmount ??
                             null;
 
-                        const market = String(marketRaw ?? "").trim();
-                        const price = priceRaw != null ? Number(priceRaw) : null;
-                        const prevClose = prevCloseRaw != null ? Number(prevCloseRaw) : null;
-                        const volume = volumeRaw != null ? Number(volumeRaw) : null;
+                        // ✅ 24시간 누적 거래대금
+                        const accTradePrice24hRaw =
+                            payload.accTradePrice24h ??
+                            payload.acc_trade_price_24h ??
+                            payload.accTradePrice ??
+                            payload.acc_trade_price ??
+                            null;
 
+                        const market = String(marketRaw ?? "").trim();
                         if (!market) return;
 
                         const normalized = normalizeMarket(market);
 
-                        const change = price != null && prevClose != null ? price - prevClose : (payload.change ?? payload.diff ?? null);
+                        const price = priceRaw != null ? Number(priceRaw) : null;
+                        const prevClose = prevCloseRaw != null ? Number(prevCloseRaw) : null;
+                        const volume = volumeRaw != null ? Number(volumeRaw) : null;
+                        const accTradePrice24h =
+                            accTradePrice24hRaw != null ? Number(accTradePrice24hRaw) : null;
+
+                        const change =
+                            price != null && prevClose != null
+                                ? price - prevClose
+                                : payload.change ?? payload.diff ?? null;
+
                         const changeNum = change != null ? Number(change) : null;
+
                         const changeRate =
                             payload.changeRate ??
                             payload.change_rate ??
-                            (changeNum != null && prevClose ? (changeNum / prevClose) * 100 : null);
+                            (changeNum != null && prevClose
+                                ? (changeNum / prevClose) * 100
+                                : null);
 
+                        // 🔥🔥🔥 핵심 수정 부분
                         pendingTickersRef.current[normalized] = {
                             price: price ?? null,
                             prevClose: prevClose ?? null,
                             change: changeNum ?? null,
                             changeRate: changeRate ?? null,
                             volume: volume ?? null,
+                            accTradePrice24h: accTradePrice24h ?? null,   // ✅ 추가
                             raw: payload,
                         };
 
