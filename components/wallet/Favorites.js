@@ -2,9 +2,9 @@ import React, { useMemo, useState } from "react";
 
 /**
  * Favorites (관심코인)
- * - Header과 Row에 동일한 gridTemplateColumns(cols)을 적용해 간격(정렬)을 고정합니다.
- * - cols 값을 조정하면 전체 열 너비가 바뀝니다 (desktop 기준).
- * - WalletComponent에서 markets, favorites, tickers를 전달해야 합니다.
+ * - 서버에서 normalizeFavoriteEntry 형태와 legacy 형태 모두 견딜 수 있도록 보완
+ * - composite id (e.g. { member_id, trading_pair_id }) 지원
+ * - safe key 생성 (primitive string/number 보장)
  */
 
 export default function Favorites({
@@ -23,9 +23,6 @@ export default function Favorites({
     const [query, setQuery] = useState("");
     const [selectedFromCombo, setSelectedFromCombo] = useState("");
 
-    // 그리드 컬럼: [코인명 | 현재가 | 전일대비 | 거래대금]
-    // 이미지(6) 스타일에 가깝게 기본값 설정했습니다.
-    // 원하시면 숫자(픽셀)를 조정해 주세요.
     const cols = "1fr 220px 140px 140px";
 
     const normalizeMarketKey = (raw) => {
@@ -41,82 +38,111 @@ export default function Favorites({
     const findMarketMetaById = (id) => {
         if (id === undefined || id === null) return null;
         const sid = String(id);
-        return (markets || []).find((m) =>
-            [m.id, m._id, m.tradingPairId, m.trading_pair_id, m.marketId, m.market_id]
-                .map((x) => (x === undefined || x === null ? "" : String(x)))
-                .some((v) => v === sid)
-        ) ?? null;
+        return (
+            (markets || []).find((m) =>
+                [m.id, m._id, m.tradingPairId, m.trading_pair_id, m.marketId, m.market_id]
+                    .map((x) => (x === undefined || x === null ? "" : String(x)))
+                    .some((v) => v === sid)
+            ) ?? null
+        );
+    };
+
+    // tpId 후보 확장: 다양한 위치에서 tradingPairId를 찾아서 반환
+    const resolveTradingPairId = (f) => {
+        if (!f) return null;
+        // common explicit fields
+        if (f.tradingPairId != null) return f.tradingPairId;
+        if (f.trading_pair_id != null) return f.trading_pair_id;
+        // composite id object from server: { member_id, trading_pair_id }
+        if (f.id && typeof f.id === "object") {
+            if (f.id.trading_pair_id != null) return f.id.trading_pair_id;
+            if (f.id.tradingPairId != null) return f.id.tradingPairId;
+            if (f.id._id != null) return f.id._id;
+        }
+        // raw nested shapes
+        if (f.raw && typeof f.raw === "object") {
+            if (f.raw.trading_pair_id != null) return f.raw.trading_pair_id;
+            if (f.raw.tradingPairId != null) return f.raw.tradingPairId;
+            if (f.raw.id && typeof f.raw.id === "object" && f.raw.id.trading_pair_id != null) return f.raw.id.trading_pair_id;
+        }
+        return null;
     };
 
     const extractMarketFromFavorite = (f) => {
         if (!f) return "";
-        if (typeof f === "string") return f;
-        if (f.market) return f.market;
-        if (f.symbol) return f.symbol;
-        if (f.code) return f.code;
-
-        const ids = [
-            f.trading_pair_id,
-            f.tradingPairId,
-            f.tradingPair?.id,
-            f.tradingPair?._id,
-            f.id,
-        ].filter((x) => x !== undefined && x !== null);
-
-        if (ids.length > 0 && Array.isArray(markets) && markets.length > 0) {
-            for (const pid of ids) {
-                const meta = findMarketMetaById(pid);
-                if (meta) return meta.market ?? meta.code ?? meta.symbol ?? "";
-            }
+        // normalized field
+        if (typeof f.market === "string" && f.market.trim()) return f.market;
+        // try tpId -> markets meta
+        const tpId = resolveTradingPairId(f);
+        if (tpId !== undefined && tpId !== null) {
+            const meta = findMarketMetaById(tpId);
+            if (meta) return meta.market ?? meta.code ?? meta.symbol ?? "";
         }
-
+        // nested tradingPair object
         if (f.tradingPair && typeof f.tradingPair === "object") {
-            return f.tradingPair.market ?? f.tradingPair.symbol ?? "";
+            if (f.tradingPair.market) return f.tradingPair.market;
+            if (f.tradingPair.symbol) return f.tradingPair.symbol;
         }
         if (f.trading_pair && typeof f.trading_pair === "object") {
-            return f.trading_pair.market ?? f.trading_pair.symbol ?? "";
+            if (f.trading_pair.market) return f.trading_pair.market;
+            if (f.trading_pair.symbol) return f.trading_pair.symbol;
         }
-
-        return f.marketName ?? f.name ?? f.korean_name ?? "";
+        // legacy fields
+        if (f.symbol) return f.symbol;
+        if (f.code) return f.code;
+        if (f.marketName) return f.marketName;
+        if (f.name) return f.name;
+        // fallback to raw.market if present
+        if (f.raw && typeof f.raw === "object") {
+            return f.raw.market ?? f.raw.code ?? f.raw.symbol ?? "";
+        }
+        return "";
     };
 
     const extractDisplayName = (f) => {
         if (!f) return "";
-        const ids = [
-            f.trading_pair_id,
-            f.tradingPairId,
-            f.tradingPair?.id,
-            f.tradingPair?._id,
-            f.id,
-        ].filter((x) => x !== undefined && x !== null);
-
-        if (ids.length > 0 && Array.isArray(markets) && markets.length > 0) {
-            for (const pid of ids) {
-                const meta = findMarketMetaById(pid);
-                if (meta) return meta.korean_name ?? meta.koreanName ?? meta.name ?? "";
-            }
+        // normalized
+        if (typeof f.korean_name === "string" && f.korean_name.trim()) return f.korean_name;
+        if (typeof f.koreanName === "string" && f.koreanName.trim()) return f.koreanName;
+        // markets meta via tpId
+        const tpId = resolveTradingPairId(f);
+        if (tpId !== undefined && tpId !== null) {
+            const meta = findMarketMetaById(tpId);
+            if (meta) return meta.korean_name ?? meta.koreanName ?? meta.name ?? "";
         }
-
+        // nested
         if (f.tradingPair && typeof f.tradingPair === "object") {
-            return f.tradingPair.korean_name ?? f.tradingPair.english_name ?? f.tradingPair.name ?? f.name ?? "";
+            return f.tradingPair.korean_name ?? f.tradingPair.english_name ?? f.tradingPair.name ?? "";
         }
-
-        return f.korean_name ?? f.koreanName ?? f.name ?? "";
+        if (f.trading_pair && typeof f.trading_pair === "object") {
+            return f.trading_pair.korean_name ?? f.trading_pair.english_name ?? f.trading_pair.name ?? "";
+        }
+        // legacy
+        if (f.name) return f.name;
+        if (f.title) return f.title;
+        if (f.raw && typeof f.raw === "object") {
+            return f.raw.korean_name ?? f.raw.name ?? "";
+        }
+        return "";
     };
 
     const findMarketMeta = (marketRaw) => {
         if (!marketRaw) return null;
         const key = normalizeMarketKey(marketRaw);
-        return (markets || []).find((m) => {
-            const mm = normalizeMarketKey(m.market ?? m.code ?? m.symbol ?? "");
-            return mm === key;
-        }) ?? null;
+        return (
+            (markets || []).find((m) => {
+                const mm = normalizeMarketKey(m.market ?? m.code ?? m.symbol ?? "");
+                return mm === key;
+            }) ?? null
+        );
     };
 
+    // Enhanced getTickerInfo: wider candidate matching + suffix/includes fallback
     const getTickerInfo = (marketRaw) => {
         const key = normalizeMarketKey(marketRaw);
         if (!key) return null;
 
+        // common direct candidates
         const candidates = [key, key.replace("-", ""), key.toLowerCase(), key.replace("-", "").toLowerCase()];
         let t;
         for (const k of candidates) {
@@ -126,7 +152,8 @@ export default function Favorites({
             }
         }
 
-        if (t === undefined && Array.isArray(markets) && markets.length > 0) {
+        // try markets metadata (e.g. normalize by markets list)
+        if ((t === undefined || t === null) && Array.isArray(markets) && markets.length > 0) {
             const symbol = key.includes("-") ? key.split("-")[1] : key;
             const found = markets.find((m) => {
                 const mKey = normalizeMarketKey(m.market ?? m.code ?? m.symbol ?? "");
@@ -135,6 +162,28 @@ export default function Favorites({
             if (found) {
                 const mk = normalizeMarketKey(found.market ?? found.code ?? found.symbol ?? "");
                 t = tickers?.[mk] ?? tickers?.[mk.replace("-", "")];
+            }
+        }
+
+        // fallback: scan tickers keys to find suffix or include match by symbol
+        if (t === undefined || t === null) {
+            const symbol = key.includes("-") ? key.split("-")[1] : key;
+            if (symbol) {
+                const lowerSym = String(symbol).toLowerCase();
+                const entries = Object.entries(tickers || {});
+
+                // prefer keys that end with `-SYMBOL` or end with SYMBOL
+                let match = entries.find(([k]) => {
+                    const lk = String(k).toLowerCase();
+                    return lk.endsWith(`-${lowerSym}`) || lk.endsWith(lowerSym);
+                });
+
+                if (!match) {
+                    // if no suffix match, try contains
+                    match = entries.find(([k]) => String(k).toLowerCase().includes(lowerSym));
+                }
+
+                if (match) t = match[1];
             }
         }
 
@@ -205,19 +254,13 @@ export default function Favorites({
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-2">
                 <MarketCombobox markets={comboMarkets} value={selectedFromCombo} onChange={(m) => setSelectedFromCombo(m)} placeholder="코인 검색 후 선택 (예: 비트코인, BTC)" limit={12} />
                 <div className="flex gap-2">
-                    <button onClick={handleAdd} disabled={loading || !selectedFromCombo} className="px-4 py-2 bg-indigo-600 rounded hover:brightness-110 disabled:opacity-50">추가</button>
+                    <button onClick={handleAdd} disabled={loading || !selectedFromCombo} className="px-4 py-2 bg-indigo-600 rounded hover:brightness-110 disabled:opacity-50">
+                        추가
+                    </button>
                 </div>
             </div>
 
-            {/* 검색 및 액션 */}
-            <div className="flex items-center gap-2">
-            </div>
-
-            <div className="flex gap-2">
-
-            </div>
-
-            {/* Header: '선택 삭제 / 전체 삭제' 바로 아래에 위치, 동일한 cols 사용 */}
+            {/* Header */}
             <div className="px-1">
                 <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
                     <div className="text-sm text-white/60 font-semibold">코인명</div>
@@ -246,11 +289,17 @@ export default function Favorites({
                         const volume = ticker?.volume ?? null;
                         const changeColor = change >= 0 ? "text-red-400" : "text-blue-400";
 
+                        // Safe key generation: use numeric/string trading_pair_id when present, else fallback to market+index
+                        const tpId = resolveTradingPairId(f);
+                        const baseKey = tpId !== null && tpId !== undefined ? `tp-${String(tpId)}` : (marketKey || `${displayName}-${symbol}`);
+                        const key = `${baseKey}::${idx}`;
+
                         return (
-                            <div key={idx} className="bg-[#0b0f1a]/70 p-3 rounded">
+                            <div key={key} className="bg-[#0b0f1a]/70 p-3 rounded">
                                 <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
                                     <div>
                                         <div className="font-medium">{displayName ? `${displayName} (${symbol})` : (marketKey || symbol)}</div>
+                                        <div className="text-xs text-white/60">{meta?.english_name ?? ""}</div>
                                     </div>
 
                                     <div className="text-right">
@@ -367,11 +416,15 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                             {q.trim() && candidates.length === 0 ? (
                                 <div className="px-3 py-2 text-sm text-white/60">검색 결과 없음</div>
                             ) : (
-                                candidates.map((m) => (
-                                    <button type="button" key={m.market} onClick={() => pick(m)} className="w-full px-3 py-2 text-left hover:bg-white/5">
-                                        <div className="text-sm font-semibold">{label(m)}</div>
-                                    </button>
-                                ))
+                                candidates.map((m, i) => {
+                                    const mk = m?.market ?? m?.id ?? m?._id ?? toSymbol(m?.market) ?? `cand-${i}`;
+                                    const key = String(mk);
+                                    return (
+                                        <button type="button" key={key} onClick={() => pick(m)} className="w-full px-3 py-2 text-left hover:bg-white/5">
+                                            <div className="text-sm font-semibold">{label(m)}</div>
+                                        </button>
+                                    );
+                                })
                             )}
                         </div>
 

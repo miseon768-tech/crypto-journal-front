@@ -1,6 +1,6 @@
+// API client for favorite coins (robust parsing + normalization)
 const API_BASE = `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"}/api/assets/favorites`;
 
-// resolve token (supports string or object like { accessToken, token, value } )
 function resolveToken(token) {
     if (!token) return null;
     if (typeof token === "string") return token;
@@ -22,7 +22,82 @@ async function parseResponseBody(res) {
     try { return JSON.parse(text); } catch { return text; }
 }
 
-// add favorite (server expects raw string body) — tries text/plain then JSON fallback
+function extractArrayFromBody(body) {
+    if (!body) return null;
+    if (Array.isArray(body)) return body;
+
+    const candidates = [
+        "favorite_coin_list",
+        "favoriteCoinList",
+        "favorite_coin",
+        "items",
+        "data",
+        "favorites",
+        "favoriteList",
+        "list",
+    ];
+
+    for (const key of candidates) {
+        const v = body[key];
+        if (Array.isArray(v)) return v;
+        if (v && typeof v === "object") {
+            for (const subKey of ["favorite_coin_list", "favoriteCoinList", "items", "favorites"]) {
+                if (Array.isArray(v[subKey])) return v[subKey];
+            }
+        }
+    }
+
+    const maybe = Object.values(body).find((v) => Array.isArray(v));
+    if (Array.isArray(maybe)) return maybe;
+
+    return null;
+}
+
+function normalizeFavoriteEntry(raw) {
+    if (!raw || typeof raw !== "object") return raw;
+
+    const tradingPair = raw.tradingPair ?? raw.trading_pair ?? raw.trading_pair_obj ?? raw.tp ?? null;
+
+    const tradingPairId =
+        raw.tradingPairId ??
+        raw.trading_pair_id ??
+        tradingPair?.id ??
+        tradingPair?._id ??
+        raw.id ??
+        null;
+
+    const market =
+        raw.market ??
+        raw.marketName ??
+        raw.market_name ??
+        tradingPair?.market ??
+        tradingPair?.code ??
+        tradingPair?.symbol ??
+        "";
+
+    const korean_name =
+        raw.korean_name ??
+        raw.koreanName ??
+        tradingPair?.korean_name ??
+        tradingPair?.koreanName ??
+        raw.name ??
+        raw.title ??
+        "";
+
+    const createdAt = raw.createdAt ?? raw.created_at ?? raw.created ?? null;
+
+    const id = raw.id ?? raw._id ?? (tradingPairId != null ? String(tradingPairId) : market || null);
+
+    return {
+        id,
+        tradingPairId: tradingPairId != null ? Number(tradingPairId) : null,
+        market: market || null,
+        korean_name: korean_name || null,
+        createdAt,
+        raw,
+    };
+}
+
 export const addFavoriteCoin = async (coinInput, token) => {
     const t = resolveToken(token);
     if (!t) throw new Error("토큰이 필요합니다.");
@@ -35,18 +110,14 @@ export const addFavoriteCoin = async (coinInput, token) => {
 
     marketStr = marketStr.trim().toUpperCase();
 
-    // Try POST with text/plain (server controller expects raw String)
     const headers = authHeader(token, "text/plain");
-    console.debug("[API] addFavoriteCoin - POST", API_BASE, { headers, body: marketStr });
     const res = await fetch(API_BASE, {
         method: "POST",
         headers,
         body: marketStr,
     });
 
-    // If server rejects text/plain (415) or returns 400, try JSON fallback
     if (res.status === 415 || res.status === 400) {
-        console.debug("[API] addFavoriteCoin - retrying as JSON");
         const res2 = await fetch(API_BASE, {
             method: "POST",
             headers: authHeader(token, "application/json"),
@@ -63,7 +134,6 @@ export const addFavoriteCoin = async (coinInput, token) => {
     }
 
     const body = await parseResponseBody(res);
-    console.debug("[API] addFavoriteCoin - resp", res.status, body);
     if (!res.ok) {
         const err = new Error(`관심 코인 추가 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
         err.status = res.status;
@@ -73,45 +143,49 @@ export const addFavoriteCoin = async (coinInput, token) => {
     return body;
 };
 
-// get favorites (tolerant parsing)
 export const getFavoriteCoins = async (token) => {
     const t = resolveToken(token);
-    if (!t) {
-        console.warn("토큰 없음: 관심 코인 조회 불가");
-        return [];
-    }
+    if (!t) return [];
+
     const res = await fetch(API_BASE, {
         method: "GET",
         headers: { Authorization: `Bearer ${t}` },
     });
 
     const body = await parseResponseBody(res);
-    console.debug("[API] getFavoriteCoins -", res.status, body);
 
-    // treat 404 as empty list (server may use 404 when none)
-    if (res.status === 404) return [];
+    // Accept: 204 / 404 as empty list
+    if (res.status === 404 || res.status === 204) return [];
 
+    // If server returned an error message that means "no favorites", treat as empty instead of throwing
+    const possibleMsg = (body && (body.message || body.error || (typeof body === 'string' ? body : null))) || null;
     if (!res.ok) {
+        if (possibleMsg && String(possibleMsg).includes("관심 코인 없음")) return [];
+        // some servers may return 500 with a NoSuchElementException message
+        if (res.status >= 500 && possibleMsg && /NoSuchElement|관심 코인 없음/i.test(String(possibleMsg))) return [];
+
         const err = new Error(`관심 코인 조회 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
         err.status = res.status;
         err.body = body;
         throw err;
     }
 
-    // try various shapes
-    if (Array.isArray(body)) return body;
-    if (body && Array.isArray(body.favoriteCoinList)) return body.favoriteCoinList;
-    if (body && Array.isArray(body.items)) return body.items;
-    if (body && Array.isArray(body.data?.favoriteCoinList)) return body.data.favoriteCoinList;
-    // if object representing single favorite
-    if (body && (body.market || body.id || body.tradingPair)) return [body];
+    let arr = extractArrayFromBody(body);
 
-    // fallback: find first array in values
-    const maybe = Object.values(body || {}).find((v) => Array.isArray(v));
-    return Array.isArray(maybe) ? maybe : [];
+    if (!arr) {
+        if (body?.favoriteCoin && typeof body.favoriteCoin === "object") arr = [body.favoriteCoin];
+        else if (body?.favorite_coin && typeof body.favorite_coin === "object") arr = [body.favorite_coin];
+        else if (body && (body.market || body.id || body.tradingPair || body.trading_pair || body.trading_pair_id || body.tradingPairId)) {
+            arr = [body];
+        }
+    }
+
+    if (!arr) arr = [];
+
+    const normalized = arr.map(normalizeFavoriteEntry);
+    return normalized;
 };
 
-// delete selected
 export const deleteFavoriteCoin = async (ids, token) => {
     const t = resolveToken(token);
     if (!t) throw new Error("토큰이 필요합니다.");
@@ -124,7 +198,6 @@ export const deleteFavoriteCoin = async (ids, token) => {
     });
 
     const body = await parseResponseBody(res);
-    console.debug("[API] deleteFavoriteCoin -", res.status, body);
 
     if (!res.ok) {
         const err = new Error(`선택 삭제 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);
@@ -145,7 +218,6 @@ export const deleteAllFavoriteCoins = async (token) => {
     });
 
     const body = await parseResponseBody(res);
-    console.debug("[API] deleteAllFavoriteCoins -", res.status, body);
 
     if (!res.ok) {
         const err = new Error(`전체 삭제 실패 (status: ${res.status})${body ? " - " + JSON.stringify(body) : ""}`);

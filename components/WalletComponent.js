@@ -34,6 +34,11 @@ import SockJS from "sockjs-client";
 /**
  * WalletComponent - Wallet 전체(보유자산 / 보유코인 / 포트폴리오 / 관심코인)
  * 관심코인 탭은 별도 Favorites 컴포넌트로 분리하여 사용합니다.
+ *
+ * 변경 요약:
+ * - fetchAll: markets를 favorites보다 먼저 로드하도록 순서 변경
+ * - fetchFavorites: getFavoriteCoins 결과를 markets로 보정(enrich)해서 setFavorites
+ * - 디버그용 콘솔 로그 제거 (에러 로그만 유지)
  */
 
 export default function WalletComponent() {
@@ -69,8 +74,8 @@ export default function WalletComponent() {
     const [coinFilter, setCoinFilter] = useState("");
 
     // favorites UI state
-    const [favInput, setFavInput] = useState(""); // 입력으로 관심코인 추가 (legacy)
-    const [selectedFavIds, setSelectedFavIds] = useState(new Set()); // 선택 삭제용
+    const [favInput, setFavInput] = useState("");
+    const [selectedFavIds, setSelectedFavIds] = useState(new Set());
 
     // STOMP / tickers
     // tickers will hold objects per market key:
@@ -79,7 +84,23 @@ export default function WalletComponent() {
     const pendingTickersRef = useRef({});
     const stompClientRef = useRef(null);
 
-    const token = typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null;
+    // token을 상태로 관리: localStorage 변화에 따라 갱신되도록 함
+    const [token, setTokenState] = useState(() => (typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null));
+
+    // localStorage의 token 변경(다른 탭 또는 zustand rehydrate)에 대응
+    useEffect(() => {
+        const update = () => setTokenState(getStoredToken(localStorage.getItem("token")));
+        // 마운트 시 한 번 읽기
+        update();
+        // storage 이벤트로 다른 탭에서 변경된 경우 반영
+        const onStorage = (e) => {
+            if (e.key === "token") update();
+        };
+        window.addEventListener && window.addEventListener("storage", onStorage);
+        return () => {
+            window.removeEventListener && window.removeEventListener("storage", onStorage);
+        };
+    }, []);
 
     useEffect(() => {
         if (!token) return;
@@ -142,7 +163,6 @@ export default function WalletComponent() {
 
         const backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://localhost:8080/ws";
 
-        // cleanup existing client if any
         try {
             stompClientRef.current?.deactivate();
         } catch (e) {
@@ -154,15 +174,15 @@ export default function WalletComponent() {
             reconnectDelay: 5000,
             heartbeatIncoming: 0,
             heartbeatOutgoing: 20000,
+            // 항상 최신 token 상태를 사용 (closure capture 되는 token은 state임)
             connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
             onConnect: () => {
-                console.info("[STOMP] connected");
+                // subscribe to ticker topic
                 client.subscribe("/topic/ticker", (msg) => {
                     if (!msg || !msg.body) return;
                     try {
                         const payload = JSON.parse(msg.body);
 
-                        // extract market identifier from common fields
                         const marketRaw =
                             payload.market ??
                             payload.code ??
@@ -171,7 +191,6 @@ export default function WalletComponent() {
                             (payload.ticker && payload.ticker.market) ??
                             "";
 
-                        // extract useful numeric fields if present
                         const priceRaw =
                             payload.tradePrice ??
                             payload.trade_price ??
@@ -181,8 +200,7 @@ export default function WalletComponent() {
                             payload.close ??
                             null;
 
-                        const prevCloseRaw =
-                            payload.prevClose ?? payload.prev_close ?? payload.open ?? payload.yesterdayPrice ?? null;
+                        const prevCloseRaw = payload.prevClose ?? payload.prev_close ?? payload.open ?? payload.yesterdayPrice ?? null;
 
                         const volumeRaw =
                             payload.volume ??
@@ -198,12 +216,10 @@ export default function WalletComponent() {
                         const prevClose = prevCloseRaw != null ? Number(prevCloseRaw) : null;
                         const volume = volumeRaw != null ? Number(volumeRaw) : null;
 
-                        // if no market or price not number, still try to store raw but ignore numeric-only checks
                         if (!market) return;
 
                         const normalized = normalizeMarket(market);
 
-                        // compute change, changeRate if possible
                         const change = price != null && prevClose != null ? price - prevClose : (payload.change ?? payload.diff ?? null);
                         const changeNum = change != null ? Number(change) : null;
                         const changeRate =
@@ -211,7 +227,6 @@ export default function WalletComponent() {
                             payload.change_rate ??
                             (changeNum != null && prevClose ? (changeNum / prevClose) * 100 : null);
 
-                        // store a rich ticker object in pendingTickersRef
                         pendingTickersRef.current[normalized] = {
                             price: price ?? null,
                             prevClose: prevClose ?? null,
@@ -221,12 +236,10 @@ export default function WalletComponent() {
                             raw: payload,
                         };
 
-                        // batch updates every 100ms
                         if (!pendingTickersRef.current._timer) {
                             pendingTickersRef.current._timer = setTimeout(() => {
                                 const updates = { ...pendingTickersRef.current };
                                 delete updates._timer;
-                                console.debug("[STOMP] applying ticker updates:", updates);
                                 setTickers((prev) => ({ ...prev, ...updates }));
                                 pendingTickersRef.current = {};
                             }, 100);
@@ -237,7 +250,7 @@ export default function WalletComponent() {
                 });
             },
             onStompError: (frame) => console.error("STOMP error", frame),
-            onDisconnect: () => console.info("[STOMP] disconnected"),
+            onDisconnect: () => {},
         });
 
         client.activate();
@@ -254,7 +267,10 @@ export default function WalletComponent() {
     const fetchAll = async () => {
         setLoading(true);
         try {
-            await Promise.all([fetchWalletData(), fetchCoins(), fetchMarkets(), fetchFavorites()]);
+            // Load wallet and coin data in parallel, then markets, then favorites
+            await Promise.all([fetchWalletData(), fetchCoins()]);
+            await fetchMarkets(); // ensure markets available before favorites
+            await fetchFavorites();
         } finally {
             setLoading(false);
         }
@@ -296,10 +312,6 @@ export default function WalletComponent() {
         try {
             const coinAssets = await getAllCoinAssets(token);
             const normalized = Array.isArray(coinAssets) ? coinAssets : [];
-
-            if (normalized.length > 0) {
-                console.debug("getAllCoinAssets sample:", normalized[0]);
-            }
 
             setRawCoinAssets(normalized);
 
@@ -353,44 +365,73 @@ export default function WalletComponent() {
             const all = data.tradingPairs || data.trading_pairs || [];
             const onlyKrw = all.filter((m) => String(m.market || "").toUpperCase().startsWith("KRW-"));
             setMarkets(onlyKrw);
-            console.debug("fetched markets:", onlyKrw.length, onlyKrw?.[0]);
         } catch (e) {
             console.error("마켓 불러오기 실패:", e);
         }
     };
 
     const fetchFavorites = async () => {
-        if (!token) {
+        const t = token || (typeof window !== 'undefined' ? getStoredToken(localStorage.getItem('token')) : null);
+        if (!t) {
             setFavorites([]);
             return;
         }
         try {
-            console.debug("fetchFavorites token:", token);
-            const data = await getFavoriteCoins(token);
-            console.debug("fetchFavorites - raw response:", data);
+            // getFavoriteCoins 내부에서도 token을 resolve하지만 명시적으로 최신 토큰을 전달
+            const data = await getFavoriteCoins(t);
 
-            let list = [];
+            // normalize possible shapes into an array
+            let arr = [];
             if (!data) {
-                list = [];
+                arr = [];
             } else if (Array.isArray(data)) {
-                list = data;
+                arr = data;
             } else if (Array.isArray(data.favoriteCoinList)) {
-                list = data.favoriteCoinList;
+                arr = data.favoriteCoinList;
             } else if (Array.isArray(data.favorite_list)) {
-                list = data.favorite_list;
+                arr = data.favorite_list;
             } else if (Array.isArray(data.data?.favoriteCoinList)) {
-                list = data.data.favoriteCoinList;
+                arr = data.data.favoriteCoinList;
             } else if (Array.isArray(data.items)) {
-                list = data.items;
+                arr = data.items;
             } else if (data.favoriteCoin) {
-                list = [data.favoriteCoin];
+                arr = [data.favoriteCoin];
             } else {
                 const maybe = Object.values(data).find((v) => Array.isArray(v));
-                list = Array.isArray(maybe) ? maybe : [];
+                arr = Array.isArray(maybe) ? maybe : [];
             }
 
-            console.debug("fetchFavorites - parsed list length:", list.length, list?.[0]);
-            setFavorites(list);
+            // Enrich each favorite using markets if market is missing
+            const enriched = arr.map((f) => {
+                const copy = { ...f };
+
+                if (!copy.market || !String(copy.market).trim()) {
+                    const tpId = copy.tradingPairId ?? copy.trading_pair_id ?? copy.raw?.trading_pair_id ?? copy.raw?.tradingPairId ?? copy.id ?? null;
+
+                    if (tpId != null && Array.isArray(markets) && markets.length > 0) {
+                        const found = markets.find((m) =>
+                            String(m.id) === String(tpId) ||
+                            String(m._id) === String(tpId) ||
+                            String(m.tradingPairId) === String(tpId)
+                        );
+                        if (found) {
+                            copy.market = copy.market || found.market || found.code || found.symbol || null;
+                            copy.korean_name = copy.korean_name || found.korean_name || found.koreanName || found.name || null;
+                            copy._marketMeta = found;
+                        }
+                    }
+
+                    if ((!copy.market || !String(copy.market).trim()) && copy.raw) {
+                        copy.market = copy.raw.market ?? copy.raw.code ?? copy.raw.symbol ?? copy.market ?? null;
+                    }
+                }
+
+                if (copy.market) copy.market = normalizeMarket(copy.market);
+
+                return copy;
+            });
+
+            setFavorites(enriched);
             setSelectedFavIds(new Set());
         } catch (e) {
             console.error("관심 코인 불러오기 실패:", e);
@@ -452,9 +493,7 @@ export default function WalletComponent() {
         const market = (marketStr ?? favInput ?? "").toString().trim();
         if (!market) return alert("추가할 관심 코인을 입력하세요 (예: KRW-BTC 또는 BTC)");
         try {
-            console.debug("handleAddFavorite - adding market:", market);
             const result = await addFavoriteCoin(market.toUpperCase(), token);
-            console.debug("handleAddFavorite - add result:", result);
 
             let added = null;
             if (result) {
@@ -569,7 +608,7 @@ export default function WalletComponent() {
             await fetchWalletData();
             closeDrawer();
         } catch (e) {
-            console.error(e);
+            console.error("코인 삭제 실패", e);
             alert("코인 삭제 실패");
         }
     };
@@ -589,17 +628,12 @@ export default function WalletComponent() {
     useEffect(() => {
         const newAssets = rawCoinAssets.map((c) => {
             const marketRaw = extractMarket(c).trim();
-            const market = normalizeMarket(marketRaw); // normalized
+            const market = normalizeMarket(marketRaw);
             const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
             const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
 
-            // read ticker price from tickers (supports both number and object)
-            const tickerObj = tickers[market] ?? tickers[market.replace("-", "")];
             const tickerPrice = getTickerPriceValue(market);
             const currentPrice = tickerPrice !== undefined ? tickerPrice : avgPrice;
-
-            // debug
-            console.debug(`[ASSET] ${marketRaw} -> ${market} | tickerObj=`, tickerObj, "| currentPrice=", currentPrice, "avg=", avgPrice);
 
             const evalAmount = Math.round(amount * currentPrice);
             const profit = Math.round(amount * (currentPrice - avgPrice));
@@ -735,7 +769,7 @@ export default function WalletComponent() {
                             <Favorites
                                 markets={markets}
                                 favorites={favorites}
-                                tickers={tickers} // <-- pass rich tickers to Favorites for display
+                                tickers={tickers}
                                 favInput={favInput}
                                 setFavInput={setFavInput}
                                 onAddFavorite={handleAddFavorite}
