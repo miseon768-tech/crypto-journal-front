@@ -450,7 +450,7 @@ function CoinDetailDrawer({
                     <div className="rounded-xl bg-white/5 border border-white/10 p-4">
                         <div className="text-xs text-white/50">평가손익</div>
                         <div
-                            className={`mt-1 text-lg font-semibold tabular-nums ${profitColor}`}>{profitNum.toLocaleString()}</div>
+                            className={`mt-1 text-lg font-semibold tabular-nums ${profitColor}`}>{profitNum.toLocaleString()} 원</div>
                     </div>
                     <div className="rounded-xl bg-white/5 border border-white/10 p-4">
                         <div className="text-xs text-white/50">수익률</div>
@@ -462,7 +462,7 @@ function CoinDetailDrawer({
 
                 <div className="mt-4 rounded-xl bg-white/5 border border-white/10 p-4">
                     <div className="text-xs text-white/50">총 매수금액</div>
-                    <div className="mt-1 text-lg font-semibold tabular-nums">{buyAmountNum.toLocaleString()} KRW</div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums">{buyAmountNum.toLocaleString()} 원</div>
                     <div className="mt-1 text-[11px] text-white/40">보유수량 × 매수평균가로 서버에서 자동 계산됩니다.</div>
                 </div>
 
@@ -479,9 +479,18 @@ function CoinDetailDrawer({
                 </div>
 
                 <div className="mt-6 flex gap-2">
-                    <button onClick={onSave} className="flex-1 px-4 py-2 rounded bg-indigo-500 font-semibold">저장
+                    <button
+                        onClick={onSave}
+                        className="flex-1 px-4 py-2 rounded bg-white/5 font-semibold transition-colors duration-150 hover:bg-indigo-500 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                        저장
                     </button>
-                    <button onClick={onDelete} className="px-4 py-2 rounded bg-red-600/90 font-semibold">삭제</button>
+                    <button
+                        onClick={onDelete}
+                        className="px-4 py-2 rounded bg-white/5 font-semibold transition-colors duration-150 hover:bg-red-600/90 hover:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                        삭제
+                    </button>
                 </div>
 
                 <div className="mt-4 text-xs text-white/50 leading-relaxed">

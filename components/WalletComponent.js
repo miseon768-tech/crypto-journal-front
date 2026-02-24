@@ -36,8 +36,8 @@ import SockJS from "sockjs-client";
  * 관심코인 탭은 별도 Favorites 컴포넌트로 분리하여 사용합니다.
  *
  * 변경 요약:
- * - Favorites 컴포넌트에 부모의 선택 삭제 핸들러를 onDeleteSelected로 전달하도록 수정
- * - 부모에서 선택 삭제 확인(confirm)은 제거 (자식에서 confirm 처리)
+ * - Favorites 컴포넌트에 부모의 선택���제 핸들러를 onDeleteSelected로 전달하도록 수정
+ * - 부모에서 관리하던 selectedFavIds / toggleSelectFavorite 관련 prop 전달 제거 (Favorites 내부에서 선택 관리)
  */
 
 export default function WalletComponent() {
@@ -529,10 +529,11 @@ export default function WalletComponent() {
         }
     };
 
-    // Modified: 부모에서는 confirm을 호출하지 않음. (Favorites 자식에서 confirm 처리)
     const handleDeleteSelectedFavorites = async (idsParam) => {
+        // If called from Favorites without param, fall back to earlier selectedFavIds (not used now)
         const ids = Array.isArray(idsParam) ? idsParam : [];
         if (!ids || ids.length === 0) return alert("삭제할 항목을 선택하세요");
+        if (!confirm("선택한 관심코인을 삭제하시겠습니까?")) return;
         try {
             await deleteFavoriteCoin(ids, token);
             await fetchFavorites();
@@ -764,6 +765,7 @@ export default function WalletComponent() {
                                 favorites={favorites}
                                 tickers={tickers}
                                 onAddFavorite={handleAddFavorite}
+                                // Favorites가 기대하는 prop명(onDeleteSelected)으로 핸들러 전달
                                 onDeleteSelected={(ids) => handleDeleteSelectedFavorites(ids)}
                                 onDeleteAllFavorites={handleDeleteAllFavorites}
                                 onQuickAdd={(market) => {

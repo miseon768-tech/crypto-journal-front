@@ -1,7 +1,10 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, {useMemo, useState, useEffect} from "react";
 
 /* MarketCombobox (inline, 기존 코드 유지) */
-function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12 }) {
+function MarketCombobox({
+                            markets = [], value = "", onChange = () => {
+    }, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12
+                        }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
 
@@ -20,7 +23,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
         const queryRaw = q.trim();
         const query = normalize(queryRaw);
         const base = markets || [];
-        if (!query) return base.slice(0, limit).map((m) => ({ m, score: 0 }));
+        if (!query) return base.slice(0, limit).map((m) => ({m, score: 0}));
 
         const isSymbolOnly = /^[a-z0-9]{2,10}$/i.test(queryRaw);
 
@@ -37,7 +40,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                 if (symbol.includes(query)) score += 180;
                 if (kor.includes(query)) score += 160;
                 if (eng.includes(query)) score += 140;
-                return { m, score };
+                return {m, score};
             })
             .filter((x) => x.score > 0)
             .sort((a, b) => b.score - a.score)
@@ -87,13 +90,15 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 
             {open && (
                 <>
-                    <div className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#0b0f1a] overflow-hidden">
+                    <div
+                        className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#0b0f1a] overflow-hidden">
                         <div className="max-h-72 overflow-auto">
                             {q.trim() && candidates.length === 0 ? (
                                 <div className="px-3 py-2 text-sm text-white/60">검색 결과 없음</div>
                             ) : (
                                 candidates.map((m) => (
-                                    <button type="button" key={m.market} onClick={() => pick(m)} className="w-full px-3 py-2 text-left hover:bg-white/5">
+                                    <button type="button" key={m.market} onClick={() => pick(m)}
+                                            className="w-full px-3 py-2 text-left hover:bg-white/5">
                                         <div className="text-sm font-semibold">{label(m)}</div>
                                     </button>
                                 ))
@@ -105,7 +110,8 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
                         </div>
                     </div>
 
-                    <button type="button" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} aria-label="close" />
+                    <button type="button" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)}
+                            aria-label="close"/>
                 </>
             )}
         </div>
@@ -167,7 +173,8 @@ export default function Favorites({
                     const arr = JSON.parse(s);
                     if (Array.isArray(arr) && arr.length > 0) s = arr[0];
                 }
-            } catch (e) {}
+            } catch (e) {
+            }
             const first = s.indexOf('{');
             const last = s.lastIndexOf('}');
             if (first !== -1 && last !== -1 && last > first) {
@@ -200,7 +207,8 @@ export default function Favorites({
                 const lk = String(k).toLowerCase();
                 if (/acc|trade|value|price/.test(lk)) candidatesToCheck.push(v);
             });
-        } catch (e) {}
+        } catch (e) {
+        }
         const nums = candidatesToCheck
             .map(asNumber)
             .filter(v => v != null && Number.isFinite(v) && v > 0);
@@ -301,7 +309,14 @@ export default function Favorites({
         if (!raw) return null;
         if (typeof raw === "number") {
             const price = asNumber(raw);
-            return { price: price ?? null, change: null, changeRate: null, tradingValue: null, accTradePrice24h: null, _raw: raw };
+            return {
+                price: price ?? null,
+                change: null,
+                changeRate: null,
+                tradingValue: null,
+                accTradePrice24h: null,
+                _raw: raw
+            };
         }
         return getTickerInfoFromPayload(raw);
     };
@@ -391,15 +406,15 @@ export default function Favorites({
                 <button
                     onClick={handleAdd}
                     disabled={loading}
-                    className="px-4 py-2 bg-indigo-600 rounded text-white hover:bg-indigo-500 transition-colors"
+                    className="px-4 py-2 bg-white/5 rounded text-white hover:bg-indigo-500 transition-colors"
                 >
                     추가
                 </button>
             </div>
 
-            <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
+            <div className="grid items-center" style={{gridTemplateColumns: cols, gap: "1rem"}}>
                 <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll}/>
                     <span>코인명</span>
                 </div>
                 <div className="text-right">현재가</div>
@@ -424,9 +439,10 @@ export default function Favorites({
 
                     return (
                         <div key={`${key}-${idx}`} className="bg-[#0b0f1a]/70 p-3 rounded">
-                            <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
+                            <div className="grid items-center" style={{gridTemplateColumns: cols, gap: "1rem"}}>
                                 <div className="flex items-center gap-3">
-                                    <input type="checkbox" checked={selectedIds.has(key)} onChange={() => toggleOne(key)} />
+                                    <input type="checkbox" checked={selectedIds.has(key)}
+                                           onChange={() => toggleOne(key)}/>
                                     <div>
                                         {f.korean_name ?? f.koreanName ?? f.name} ({(f.market ?? "").split("-")[1] ?? ""})
                                     </div>
@@ -436,7 +452,8 @@ export default function Favorites({
 
                                 <div className={`text-right ${changeColor}`}>{displayRateText}</div>
 
-                                <div className="text-right">{accPrice24h != null ? formatTradingValue(accPrice24h) : "-"}</div>
+                                <div
+                                    className="text-right">{accPrice24h != null ? formatTradingValue(accPrice24h) : "-"}</div>
                             </div>
                         </div>
                     );
@@ -447,8 +464,9 @@ export default function Favorites({
             <div className="flex justify-end mt-2">
                 <button
                     onClick={handleDeleteSelected}
-                    disabled={selectedIds.size === 0}
-                    className={`px-4 py-2 rounded text-white transition-colors ${selectedIds.size === 0 ? "bg-red-500/50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"}`}
+                    className={`px-4 py-2 rounded text-white transition-colors duration-150 
+    ${selectedIds.size === 0 ? "bg-white/5 cursor-not-allowed opacity-60" : "bg-transparent"}
+    hover:bg-red-600 hover:text-white`}
                 >
                     삭제
                 </button>

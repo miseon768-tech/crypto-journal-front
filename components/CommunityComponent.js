@@ -42,6 +42,12 @@ export default function Community() {
 
     const [loading, setLoading] = useState(true);
 
+    // new flag for edit mode (so "write" UI can represent create vs update)
+    const [isEditing, setIsEditing] = useState(false);
+
+    // debug panel toggle (hide debug info by default)
+    const [showDebug, setShowDebug] = useState(false);
+
     const getToken = () => {
         // 우선 zustand에 저장된 토큰 사용, 없으면 localStorage의 token을 사용
         const raw = globalToken || (typeof window !== "undefined" ? localStorage.getItem("token") : null);
@@ -164,14 +170,43 @@ export default function Community() {
     // =======================
     // 글 작성 / 수정 / 삭제
     // =======================
-    const handleCreate = async () => {
+
+    // Unified submit handler: create when not editing, update when editing
+    const handleSubmit = async () => {
         const token = getToken();
         if (!token) return alert("로그인 필요");
+
+        // basic validation
+        if (!title.trim() || !content.trim()) return alert("제목과 내용을 입력하세요.");
+
         try {
-            await createPost({ title, content }, token);
-            setTitle(""); setContent(""); setMode("list");
+            if (isEditing && selectedPost?.id) {
+                // NOTE: adjust the argument order to match your API:
+                // common patterns:
+                //  - updatePost(postId, data, token)
+                //  - updatePost({ title, content }, postId, token)
+                // If your updatePost has a different signature, change the call accordingly.
+                try {
+                    await updatePost(selectedPost.id, { title, content }, token);
+                } catch (tryAlt) {
+                    // fallback attempt with alternative arg order
+                    await updatePost({ title, content }, selectedPost.id, token);
+                }
+            } else {
+                await createPost({ title, content }, token);
+            }
+
+            // reset state after success
+            setTitle("");
+            setContent("");
+            setIsEditing(false);
+            setSelectedPost(null);
+            setMode("list");
             fetchPosts();
-        } catch (e) { console.error("글 작성 실패", e); alert(e?.message || '글 작성 실패'); }
+        } catch (e) {
+            console.error(isEditing ? "글 수정 실패" : "글 작성 실패", e);
+            alert(e?.message || (isEditing ? '글 수정 실패' : '글 작성 실패'));
+        }
     };
 
     const handleDelete = async (postId) => {
@@ -252,7 +287,7 @@ export default function Community() {
     // LIST 화면
     // =======================
     if (mode === "list") {
-        // 개발용: 게시물이 비어있다면 디버그 정보와 재시도 버튼을 보여줌
+        // 개발용: 게시물이 비어있다면 간단한 빈 상태를 보여주고, 필요하면 디버그를 열 수 있게 함
         if (posts.length === 0 && !loading) {
             const dbgToken = getToken();
             const shortToken = dbgToken ? `${dbgToken.substring(0, 20)}...${dbgToken.substring(dbgToken.length - 10)}` : null;
@@ -260,6 +295,10 @@ export default function Community() {
             const handleRetryClick = () => fetchPosts();
             const handleCopyToken = async () => {
                 const t = dbgToken || localStorage.getItem('token') || '';
+                if (!navigator.clipboard) {
+                    alert('브라우저가 클립보드를 지원하지 않습니다.');
+                    return;
+                }
                 try { await navigator.clipboard.writeText(t); alert('토큰을 복사했습니다.'); } catch (e) { console.error('토큰 복사 실패', e); alert('토큰 복사 실패: 콘솔 확인'); }
             };
             const handleLogout = () => { try { localStorage.removeItem('token'); } catch (e) {} try { setToken(null); } catch (e) {} alert('로그아웃 처리했습니다. 로그인 해주세요.'); };
@@ -268,22 +307,23 @@ export default function Community() {
                 <div className="p-6 text-white max-w-3xl mx-auto">
                     <div className="mb-6">
                         <h1 className="text-3xl font-bold">커뮤니티</h1>
-                        <p className="text-sm text-gray-300 mt-2">게시물이 없습니다. 네트워크 응답 또는 인증 토큰을 확인하세요.</p>
+                        <p className="text-sm text-gray-300 mt-2">커뮤니티 게시물이 없습니다. 글을 작성해보세요.</p>
                     </div>
 
-                    <div className="bg-white/5 p-4 rounded mb-4">
-                        <p className="text-sm mb-2">디버그 토큰: <span className="font-mono">{shortToken || '없음'}</span></p>
-                        <div className="flex gap-2">
-                            <button onClick={handleRetryClick} className="px-4 py-2 bg-blue-600 rounded">재시도</button>
-                            <button onClick={handleCopyToken} className="px-4 py-2 bg-gray-600 rounded">토큰 복사</button>
-                            <button onClick={handleLogout} className="px-4 py-2 bg-red-600 rounded">로그아웃</button>
+                    <div className="flex gap-2 mb-4">
+                        <button onClick={() => { setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); setMode("write"); }} className="px-4 py-2 bg-primary rounded ml-auto">글 작성</button>
+                    </div>
+
+                    {showDebug && (
+                        <div className="bg-white/5 p-4 rounded mb-4">
+                            <p className="text-sm mb-2">디버그 토큰: <span className="font-mono break-words">{shortToken || '없음'}</span></p>
+                            <div className="flex gap-2">
+                                <button onClick={handleRetryClick} className="px-4 py-2 bg-blue-600 rounded">재시도</button>
+                                <button onClick={handleCopyToken} className="px-4 py-2 bg-gray-600 rounded">토큰 복사</button>
+                                <button onClick={handleLogout} className="px-4 py-2 bg-red-600 rounded">로그아웃</button>
+                            </div>
                         </div>
-                    </div>
-
-                    <div className="mb-4">
-                        <p className="text-xs text-gray-400">콘솔 로그를 열고 [Community] fetchPosts debug 로그를 확인하세요.</p>
-                        <p className="text-xs text-gray-400">(네트워크 탭에서 /api/post 요청의 Authorization 헤더와 응답 상태를 확인하십시오.)</p>
-                    </div>
+                    )}
                 </div>
             );
         }
@@ -309,7 +349,7 @@ export default function Community() {
                     </div>
                 ))}
                 <div className="flex gap-2 justify-end">
-                    <button onClick={() => setMode("write")} className="px-4 py-2 bg-primary rounded">글 작성</button>
+                    <button onClick={() => { setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); setMode("write"); }} className="px-4 py-2 bg-primary rounded">글 작성</button>
                 </div>
             </div>
         );
@@ -324,9 +364,9 @@ export default function Community() {
                 <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="제목" className="w-full p-3 rounded bg-gray-800 mb-2"/>
                 <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="내용" className="w-full p-3 rounded bg-gray-800 h-40 mb-2"/>
                 <div className="flex gap-2">
-                    <button onClick={handleCreate} className="px-6 py-2 bg-primary rounded">작성</button>
+                    <button onClick={handleSubmit} className="px-6 py-2 bg-primary rounded">{isEditing ? "수정 완료" : "작성"}</button>
                     <button onClick={handleSaveDraft} className="px-6 py-2 bg-gray-600 rounded">임시저장</button>
-                    <button onClick={() => setMode("list")} className="px-6 py-2 bg-gray-600 rounded">취소</button>
+                    <button onClick={() => { setMode("list"); setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); }} className="px-6 py-2 bg-gray-600 rounded">취소</button>
                 </div>
             </div>
         );
@@ -342,8 +382,16 @@ export default function Community() {
                     <h2 className="text-2xl font-bold mb-2">{selectedPost.title}</h2>
                     <p className="whitespace-pre-wrap">{selectedPost.content}</p>
                 </div>
-                <div className="flex gap-2 mb-4">
-                    <button onClick={() => { setTitle(selectedPost.title); setContent(selectedPost.content); setMode("write"); }} className="px-4 py-2 bg-primary rounded">수정</button>
+                <div className="flex gap-2 mb-4 justify-end">
+                    <button
+                        onClick={() => {
+                            setTitle(selectedPost.title);
+                            setContent(selectedPost.content);
+                            setIsEditing(true); // <-- set editing flag so submit will update instead of create
+                            setMode("write");
+                        }}
+                        className="px-4 py-2 bg-primary rounded"
+                    >수정</button>
                     <button onClick={() => handleDelete(selectedPost.id)} className="px-4 py-2 bg-red-600 rounded">삭제</button>
                 </div>
                 <div>
