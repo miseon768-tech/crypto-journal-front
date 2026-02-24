@@ -411,6 +411,24 @@ export default function Community() {
     if (mode === "detail" && selectedPost) {
         return (
             <div className="p-6 text-white max-w-3xl mx-auto">
+                {/* Back 버튼 추가: 상세 -> 목록 */}
+                <div className="mb-4 flex items-center">
+                    <button
+                        onClick={() => {
+                            // 목록으로 돌아가기, 선택된 포스트 초기화
+                            setMode("list");
+                            setIsEditing(false);
+                            setSelectedPost(null);
+                            setTitle("");
+                            setContent("");
+                        }}
+                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        aria-label="뒤로"
+                    >
+                        ← 뒤로
+                    </button>
+                </div>
+
                 <div className="bg-white/10 p-6 rounded-xl mb-4">
                     <h2 className="text-2xl font-bold mb-2">{selectedPost.title}</h2>
                     <p className="whitespace-pre-wrap">{selectedPost.content}</p>
