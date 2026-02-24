@@ -363,7 +363,7 @@ export default function Community() {
             <div className="p-6 text-white max-w-3xl mx-auto">
                 <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="제목" className="w-full p-3 rounded bg-gray-800 mb-2"/>
                 <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="내용" className="w-full p-3 rounded bg-gray-800 h-40 mb-2"/>
-                <div className="flex gap-2">
+                <div className="flex gap-2 justify-end">
                     <button onClick={handleSubmit} className="px-6 py-2 bg-primary rounded">{isEditing ? "수정 완료" : "작성"}</button>
                     <button onClick={handleSaveDraft} className="px-6 py-2 bg-gray-600 rounded">임시저장</button>
                     <button onClick={() => { setMode("list"); setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); }} className="px-6 py-2 bg-gray-600 rounded">취소</button>
