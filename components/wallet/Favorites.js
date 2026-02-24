@@ -450,7 +450,7 @@ export default function Favorites({
                     disabled={selectedIds.size === 0}
                     className={`px-4 py-2 rounded text-white transition-colors ${selectedIds.size === 0 ? "bg-red-500/50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"}`}
                 >
-                    선택 삭제
+                    삭제
                 </button>
             </div>
         </div>
