@@ -361,12 +361,45 @@ export default function Community() {
     if (mode === "write") {
         return (
             <div className="p-6 text-white max-w-3xl mx-auto">
+                {/* Back 버튼을 왼쪽에 배치 (뒤로 가기) */}
+                <div className="mb-4 flex items-center">
+                    <button
+                        onClick={() => {
+                            // 뒤로(목록)로 이동 -- 취소와 동일하게 상태 초기화
+                            setMode("list");
+                            setIsEditing(false);
+                            setSelectedPost(null);
+                            setTitle("");
+                            setContent("");
+                        }}
+                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        aria-label="뒤로"
+                    >
+                        ← 뒤로
+                    </button>
+                </div>
+
                 <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="제목" className="w-full p-3 rounded bg-gray-800 mb-2"/>
                 <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="내용" className="w-full p-3 rounded bg-gray-800 h-40 mb-2"/>
                 <div className="flex gap-2 justify-end">
-                    <button onClick={handleSubmit} className="px-6 py-2 bg-primary rounded">{isEditing ? "수정 완료" : "작성"}</button>
-                    <button onClick={handleSaveDraft} className="px-6 py-2 bg-gray-600 rounded">임시저장</button>
-                    <button onClick={() => { setMode("list"); setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); }} className="px-6 py-2 bg-gray-600 rounded">취소</button>
+                    <button
+                        onClick={handleSubmit}
+                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                        {isEditing ? "수정 완료" : "작성"}
+                    </button>
+                    <button
+                        onClick={handleSaveDraft}
+                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                        임시저장
+                    </button>
+                    <button
+                        onClick={() => { setMode("list"); setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); }}
+                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                        취소
+                    </button>
                 </div>
             </div>
         );
@@ -390,9 +423,16 @@ export default function Community() {
                             setIsEditing(true); // <-- set editing flag so submit will update instead of create
                             setMode("write");
                         }}
-                        className="px-4 py-2 bg-primary rounded"
-                    >수정</button>
-                    <button onClick={() => handleDelete(selectedPost.id)} className="px-4 py-2 bg-red-600 rounded">삭제</button>
+                        className="px-4 py-2 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                        수정
+                    </button>
+                    <button
+                        onClick={() => handleDelete(selectedPost.id)}
+                        className="px-4 py-2 bg-white/5 rounded transition-colors hover:bg-red-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                        삭제
+                    </button>
                 </div>
                 <div>
                     <h3 className="text-xl font-bold mb-2">댓글</h3>
@@ -403,7 +443,12 @@ export default function Community() {
                     ))}
                     <div className="flex gap-2 mt-2">
                         <input value={commentText} onChange={(e) => setCommentText(e.target.value)} className="flex-1 px-3 py-2 rounded bg-gray-800" placeholder="댓글 작성..."/>
-                        <button onClick={handleAddComment} className="px-4 py-2 bg-primary rounded">작성</button>
+                        <button
+                            onClick={handleAddComment}
+                            className="px-4 py-2 bg-primary rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                            작성
+                        </button>
                     </div>
                 </div>
             </div>
