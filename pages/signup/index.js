@@ -203,15 +203,39 @@ export default function SignUpPage() {
 
                 {/* 소셜 로그인 */}
                 <div className="flex flex-col items-center gap-4 w-full max-w-sm mt-4">
-                    <a href={`https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI + '?provider=google')}&response_type=code&scope=profile email`}
-                       className="w-full">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : (process.env.NEXT_PUBLIC_BASE_URL || '');
+                            const redirect = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI || `${origin}/google/callback`;
+                            const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
+                            if (!clientId) {
+                                alert('구글 클라이언트 ID가 설정되어 있지 않습니다. .env.local에 NEXT_PUBLIC_GOOGLE_CLIENT_ID를 설정하세요. 등록할 redirect URI: ' + redirect);
+                                return;
+                            }
+                            window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=${encodeURIComponent('profile email')}`;
+                        }}
+                        className="w-full"
+                    >
                         <img src="/web_light_rd_ctn@2x.png" alt="구글 로그인" className="w-full max-h-12 object-contain"/>
-                    </a>
-                    <a href={`https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_NAVER_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_NAVER_REDIRECT_URI + '?provider=naver')}&state=${naverState}`}
-                       className="w-full">
-                        <img src="/NAVER_login_Dark_KR_green_center_H48.png" alt="네이버 로그인"
-                             className="w-full max-h-12 object-contain"/>
-                    </a>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : (process.env.NEXT_PUBLIC_BASE_URL || '');
+                            const redirect = process.env.NEXT_PUBLIC_NAVER_REDIRECT_URI || `${origin}/naver/callback`;
+                            const clientId = process.env.NEXT_PUBLIC_NAVER_CLIENT_ID || '';
+                            if (!clientId) {
+                                alert('네이버 클라이언트 ID가 설정되어 있지 않습니다. .env.local에 NEXT_PUBLIC_NAVER_CLIENT_ID를 설정하세요. 등록할 redirect URI: ' + redirect);
+                                return;
+                            }
+                            const state = Math.random().toString(36).substring(2, 15);
+                            window.location.href = `https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
+                        }}
+                        className="w-full"
+                    >
+                        <img src="/NAVER_login_Dark_KR_green_center_H48.png" alt="네이버 로그인" className="w-full max-h-12 object-contain"/>
+                    </button>
                 </div>
             </div>
         </div>

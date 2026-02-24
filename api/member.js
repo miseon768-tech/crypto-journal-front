@@ -56,8 +56,12 @@ export const getStoredToken = (incoming) => {
 
 export const setToken = (token) => {
     if (typeof window !== 'undefined') {
-        if (!token) localStorage.removeItem('token');
-        else localStorage.setItem('token', getStoredToken(token) || String(token));
+        if (!token) {
+            localStorage.removeItem('token');
+        } else {
+            const s = getStoredToken(token) || String(token);
+            if (s) localStorage.setItem('token', s);
+        }
     }
 };
 
@@ -76,11 +80,15 @@ const authFetch = async (url, options = {}) => {
         e.status = 401;
         throw e;
     }
+
+    // ensure token is string
+    const tokenStr = typeof token === 'string' ? token : String(token);
+
     const res = await fetch(url, {
         ...options,
         headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${tokenStr}`,
             ...(options.headers || {})
         },
     });
