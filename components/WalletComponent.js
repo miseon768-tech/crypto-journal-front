@@ -36,9 +36,8 @@ import SockJS from "sockjs-client";
  * 관심코인 탭은 별도 Favorites 컴포넌트로 분리하여 사용합니다.
  *
  * 변경 요약:
- * - fetchAll: markets를 favorites보다 먼저 로드하도록 순서 변경
- * - fetchFavorites: getFavoriteCoins 결과를 markets로 보정(enrich)해서 setFavorites
- * - 디버그용 콘솔 로그 제거 (에러 로그만 유지)
+ * - Favorites 컴포넌트에 부모의 선택 삭제 핸들러를 onDeleteSelected로 전달하도록 수정
+ * - 부모에서 선택 삭제 확인(confirm)은 제거 (자식에서 confirm 처리)
  */
 
 export default function WalletComponent() {
@@ -73,26 +72,19 @@ export default function WalletComponent() {
 
     const [coinFilter, setCoinFilter] = useState("");
 
-    // favorites UI state
+    // favorites UI state (keep favInput if you want to reuse later)
     const [favInput, setFavInput] = useState("");
-    const [selectedFavIds, setSelectedFavIds] = useState(new Set());
 
     // STOMP / tickers
-    // tickers will hold objects per market key:
-    // { "KRW-BTC": { price, prevClose, change, changeRate, volume, raw } }
     const [tickers, setTickers] = useState({});
     const pendingTickersRef = useRef({});
     const stompClientRef = useRef(null);
 
-    // token을 상태로 관리: localStorage 변화에 따라 갱신되도록 함
     const [token, setTokenState] = useState(() => (typeof window !== "undefined" ? getStoredToken(localStorage.getItem("token")) : null));
 
-    // localStorage의 token 변경(다른 탭 또는 zustand rehydrate)에 대응
     useEffect(() => {
         const update = () => setTokenState(getStoredToken(localStorage.getItem("token")));
-        // 마운트 시 한 번 읽기
         update();
-        // storage 이벤트로 다른 탭에서 변경된 경우 반영
         const onStorage = (e) => {
             if (e.key === "token") update();
         };
@@ -174,10 +166,8 @@ export default function WalletComponent() {
             reconnectDelay: 5000,
             heartbeatIncoming: 0,
             heartbeatOutgoing: 20000,
-            // 항상 최신 token 상태를 ���용 (closure capture 되는 token은 state임)
             connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
             onConnect: () => {
-                // subscribe to ticker topic
                 client.subscribe("/topic/ticker", (msg) => {
                     if (!msg || !msg.body) return;
 
@@ -217,7 +207,6 @@ export default function WalletComponent() {
                             payload.changeAmount ??
                             null;
 
-                        // ✅ 24시간 누적 거래대금
                         const accTradePrice24hRaw =
                             payload.accTradePrice24h ??
                             payload.acc_trade_price_24h ??
@@ -250,14 +239,13 @@ export default function WalletComponent() {
                                 ? (changeNum / prevClose) * 100
                                 : null);
 
-                        // 🔥🔥🔥 핵심 수정 부분
                         pendingTickersRef.current[normalized] = {
                             price: price ?? null,
                             prevClose: prevClose ?? null,
                             change: changeNum ?? null,
                             changeRate: changeRate ?? null,
                             volume: volume ?? null,
-                            accTradePrice24h: accTradePrice24h ?? null,   // ✅ 추가
+                            accTradePrice24h: accTradePrice24h ?? null,
                             raw: payload,
                         };
 
@@ -292,9 +280,8 @@ export default function WalletComponent() {
     const fetchAll = async () => {
         setLoading(true);
         try {
-            // Load wallet and coin data in parallel, then markets, then favorites
             await Promise.all([fetchWalletData(), fetchCoins()]);
-            await fetchMarkets(); // ensure markets available before favorites
+            await fetchMarkets();
             await fetchFavorites();
         } finally {
             setLoading(false);
@@ -402,10 +389,8 @@ export default function WalletComponent() {
             return;
         }
         try {
-            // getFavoriteCoins 내부에서도 token을 resolve하지만 명시적으로 최신 토큰을 전달
             const data = await getFavoriteCoins(t);
 
-            // normalize possible shapes into an array
             let arr = [];
             if (!data) {
                 arr = [];
@@ -426,7 +411,6 @@ export default function WalletComponent() {
                 arr = Array.isArray(maybe) ? maybe : [];
             }
 
-            // Enrich each favorite using markets if market is missing
             const enriched = arr.map((f) => {
                 const copy = { ...f };
 
@@ -457,7 +441,6 @@ export default function WalletComponent() {
             });
 
             setFavorites(enriched);
-            setSelectedFavIds(new Set());
         } catch (e) {
             console.error("관심 코인 불러오기 실패:", e);
             setFavorites([]);
@@ -513,7 +496,6 @@ export default function WalletComponent() {
         }
     };
 
-    // ---------- Favorites handlers ----------
     const handleAddFavorite = async (marketStr) => {
         const market = (marketStr ?? favInput ?? "").toString().trim();
         if (!market) return alert("추가할 관심 코인을 입력하세요 (예: KRW-BTC 또는 BTC)");
@@ -547,20 +529,11 @@ export default function WalletComponent() {
         }
     };
 
-    const toggleSelectFavorite = (id) => {
-        setSelectedFavIds((prev) => {
-            const copy = new Set(prev);
-            if (copy.has(id)) copy.delete(id);
-            else copy.add(id);
-            return copy;
-        });
-    };
-
-    const handleDeleteSelectedFavorites = async () => {
-        if (selectedFavIds.size === 0) return alert("삭제할 항목을 선택하세요");
-        if (!confirm("선택한 관심코인을 삭제하시겠습니까?")) return;
+    // Modified: 부모에서는 confirm을 호출하지 않음. (Favorites 자식에서 confirm 처리)
+    const handleDeleteSelectedFavorites = async (idsParam) => {
+        const ids = Array.isArray(idsParam) ? idsParam : [];
+        if (!ids || ids.length === 0) return alert("삭제할 항목을 선택하세요");
         try {
-            const ids = Array.from(selectedFavIds);
             await deleteFavoriteCoin(ids, token);
             await fetchFavorites();
             alert("선택한 관심코인 삭제 완료");
@@ -582,7 +555,6 @@ export default function WalletComponent() {
         }
     };
 
-    // Make sure openDrawer is defined before render usage
     const openDrawer = (market) => {
         setSelectedMarket(market);
         setDrawerOpen(true);
@@ -638,7 +610,6 @@ export default function WalletComponent() {
         }
     };
 
-    // helper to read price from tickers state (handles numeric or object)
     const getTickerPriceValue = (marketKey) => {
         if (!marketKey) return undefined;
         const k1 = marketKey;
@@ -649,7 +620,6 @@ export default function WalletComponent() {
         return val.price ?? val.tradePrice ?? val.lastPrice ?? undefined;
     };
 
-    // ---------- Compute assets from rawCoinAssets + tickers ----------
     useEffect(() => {
         const newAssets = rawCoinAssets.map((c) => {
             const marketRaw = extractMarket(c).trim();
@@ -687,7 +657,6 @@ export default function WalletComponent() {
 
         setAssets(newAssets);
 
-        // Recalculate summary
         const totalEval = newAssets.reduce((s, a) => s + (a.evalAmount || 0), 0);
         const totalProfit = newAssets.reduce((s, a) => s + (a.profit || 0), 0);
         const totalBuy = newAssets.reduce((s, a) => s + (a.buyAmount || 0), 0);
@@ -705,7 +674,6 @@ export default function WalletComponent() {
             cashBalance,
         }));
 
-        // Recalculate portfolio
         const portfolioItems = newAssets.map((a) => ({
             assetName: a.coinSymbol || a.market,
             market: a.market,
@@ -795,12 +763,8 @@ export default function WalletComponent() {
                                 markets={markets}
                                 favorites={favorites}
                                 tickers={tickers}
-                                favInput={favInput}
-                                setFavInput={setFavInput}
                                 onAddFavorite={handleAddFavorite}
-                                selectedFavIds={selectedFavIds}
-                                toggleSelectFavorite={toggleSelectFavorite}
-                                onDeleteSelectedFavorites={handleDeleteSelectedFavorites}
+                                onDeleteSelected={(ids) => handleDeleteSelectedFavorites(ids)}
                                 onDeleteAllFavorites={handleDeleteAllFavorites}
                                 onQuickAdd={(market) => {
                                     setActiveTab("coins");

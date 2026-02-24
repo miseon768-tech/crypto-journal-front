@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 
-/* MarketCombobox (inline, 레이아웃/모양은 그대로 유지) */
+/* MarketCombobox (inline, 기존 코드 유지) */
 function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeholder = "코인 검색 (예: 비트코인, BTC)", limit = 12 }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState("");
@@ -66,7 +66,7 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
         if (e.key === "Escape") setOpen(false);
     };
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (!open) setQ("");
     }, [value, open]);
 
@@ -113,17 +113,26 @@ function MarketCombobox({ markets = [], value = "", onChange = () => {}, placeho
 }
 
 /* -------------------------
-   Favorites component (백만 단위 고정 표시)
+   Favorites component (체크박스 + 전체선택 + 선택삭제 버튼)
+   - 삭제 버튼 겹침 문제 해결: 절대 위치 제거하고 리스트 아래에 오른쪽 정렬 버튼 배치
+   - 추가 버튼/선택 삭제 버튼에 hover 색상 변경 & transition 추가
 ------------------------- */
 export default function Favorites({
                                       markets = [],
                                       favorites = [],
-                                      tickers = {}, // parent must pass socket payload map or price map
+                                      tickers = {},
                                       onAddFavorite,
+                                      onDeleteSelected, // (ids: string[]) => Promise<void>
                                       loading = false,
                                   }) {
     const [query, setQuery] = useState("");
     const [selectedFromCombo, setSelectedFromCombo] = useState("");
+    const [selectedIds, setSelectedIds] = useState(() => new Set());
+
+    useEffect(() => {
+        // favorites가 바뀌면 선택 초기화
+        setSelectedIds(new Set());
+    }, [favorites]);
 
     const cols = "1fr 220px 140px 140px";
 
@@ -136,7 +145,6 @@ export default function Favorites({
         return Number.isFinite(n) ? n : null;
     };
 
-    // formatTradingValue: 항상 '백만' 단위로 표시 (반올림)
     const formatTradingValue = (n) => {
         const num = Number(n);
         if (!Number.isFinite(num) || num === 0) return "-";
@@ -144,19 +152,14 @@ export default function Favorites({
         return `${millions.toLocaleString()}백만`;
     };
 
-    // extractPayloadObject: 문자열형(sockjs) 및 중첩(raw, _raw) 처리
+    // payload parsing helpers (기존 로직 재사용)
     const extractPayloadObject = (raw) => {
         if (raw == null) return null;
-
         if (typeof raw === "object") {
             if (raw.raw && typeof raw.raw === "object") return raw.raw;
             if (raw._raw && typeof raw._raw === "object") return raw._raw;
-            if (raw.trade_price !== undefined || raw.tradePrice !== undefined || raw.price !== undefined) {
-                return raw;
-            }
             return raw;
         }
-
         if (typeof raw === "string") {
             let s = raw.trim();
             try {
@@ -178,25 +181,19 @@ export default function Favorites({
                 }
             }
         }
-
         return null;
     };
 
-    // accTradePrice24h 검색 헬퍼
     const getAccPrice24h = (t) => {
         if (!t) return null;
-
         const candidatesToCheck = [];
-
         candidatesToCheck.push(t.acc_trade_price_24h, t.accTradePrice24h, t.acc_trade_price, t.accTradePrice, t.acc_trade_value_24h, t.accTradeValue24h, t.acc_trade_value, t.accTradeValue);
-
         const nestedKeys = ['raw', '_raw', 'payload', 'data'];
         nestedKeys.forEach(k => {
             if (t[k] && typeof t[k] === "object") {
                 candidatesToCheck.push(t[k].acc_trade_price_24h, t[k].accTradePrice24h, t[k].acc_trade_price, t[k].accTradePrice, t[k].acc_trade_value_24h, t[k].accTradeValue24h);
             }
         });
-
         try {
             Object.entries(t).forEach(([k, v]) => {
                 if (!k || v == null) return;
@@ -204,35 +201,27 @@ export default function Favorites({
                 if (/acc|trade|value|price/.test(lk)) candidatesToCheck.push(v);
             });
         } catch (e) {}
-
         const nums = candidatesToCheck
             .map(asNumber)
             .filter(v => v != null && Number.isFinite(v) && v > 0);
-
         if (nums.length === 0) return null;
         return Math.max(...nums);
     };
 
-    // getTickerInfoFromPayload: robust extraction
     const getTickerInfoFromPayload = (tRaw) => {
         const t = extractPayloadObject(tRaw) ?? tRaw;
         if (!t || typeof t !== "object") return null;
-
         const price = asNumber(t.tradePrice ?? t.trade_price ?? t.price ?? t.lastPrice ?? t.close);
         const prev = asNumber(t.prevClosingPrice ?? t.prev_closing_price ?? t.prevClose ?? t.prev_close ?? t.open);
-
         const rawSigned = asNumber(t.signedChangePrice ?? t.signed_change_price ?? t.signedChange ?? t.signed_change);
         const rawAbsChange = asNumber(t.changePrice ?? t.change_price ?? t.change ?? t.change_amount);
-
         const changeStr = (t.change ?? t.change_type ?? t.change_flag ?? t.askBid ?? t.ask_bid ?? "").toString().toUpperCase();
         let dir = null;
         if (changeStr) {
             if (changeStr.includes("RISE") || changeStr.includes("UP") || changeStr.includes("PLUS") || changeStr.includes("BUY")) dir = "UP";
             else if (changeStr.includes("FALL") || changeStr.includes("DOWN") || changeStr.includes("MINUS") || changeStr.includes("SELL")) dir = "DOWN";
         }
-
         const computedChange = (price != null && prev != null) ? (prev - price) : null;
-
         let signedChange = null;
         if (computedChange != null) signedChange = computedChange;
         else if (rawSigned != null) {
@@ -244,7 +233,6 @@ export default function Favorites({
             else if (dir === "UP") signedChange = Math.abs(rawAbsChange);
             else signedChange = rawAbsChange;
         } else signedChange = null;
-
         let rawRate = asNumber(t.changeRate ?? t.change_rate ?? t.signedChangeRate ?? t.signed_change_rate ?? t.percent ?? t.percent_change);
         let changeRatePct = null;
         if (rawRate != null) {
@@ -255,7 +243,6 @@ export default function Favorites({
         } else if (signedChange != null && prev != null && prev !== 0) {
             changeRatePct = (signedChange / prev) * 100;
         }
-
         const marketKeyFromPayload = String(t.market ?? t.code ?? t.marketCode ?? t.product_code ?? t.symbol ?? t.marketName ?? "").toUpperCase();
         let baseCurrency = "";
         if (marketKeyFromPayload.includes("-")) baseCurrency = marketKeyFromPayload.split("-")[0];
@@ -263,12 +250,10 @@ export default function Favorites({
             if (marketKeyFromPayload.startsWith("KRW") || marketKeyFromPayload.endsWith("KRW")) baseCurrency = "KRW";
         }
         const isKRWMarket = baseCurrency === "KRW";
-
         let accPrice24h = null;
         if (isKRWMarket) {
             accPrice24h = getAccPrice24h(t);
         }
-
         return {
             price: price ?? null,
             change: signedChange ?? null,
@@ -292,14 +277,7 @@ export default function Favorites({
     const getTickerInfo = (marketRaw) => {
         const key = normalizeMarketKey(marketRaw);
         if (!key) return null;
-
-        const candidates = [
-            key,
-            key.replace("-", ""),
-            key.toLowerCase(),
-            key.replace("-", "").toLowerCase(),
-        ];
-
+        const candidates = [key, key.replace("-", ""), key.toLowerCase(), key.replace("-", "").toLowerCase()];
         let raw = null;
         for (const k of candidates) {
             if (tickers?.[k] !== undefined) {
@@ -307,7 +285,6 @@ export default function Favorites({
                 break;
             }
         }
-
         if (!raw) {
             const symbol = key.includes("-") ? key.split("-")[1] : key;
             if (symbol) {
@@ -321,14 +298,11 @@ export default function Favorites({
                 if (match) raw = match[1];
             }
         }
-
         if (!raw) return null;
-
         if (typeof raw === "number") {
             const price = asNumber(raw);
             return { price: price ?? null, change: null, changeRate: null, tradingValue: null, accTradePrice24h: null, _raw: raw };
         }
-
         return getTickerInfoFromPayload(raw);
     };
 
@@ -338,15 +312,39 @@ export default function Favorites({
         return `${Math.round(num).toLocaleString()} 원`;
     };
 
+    // filtering
     const filtered = useMemo(() => {
         const q = (query || "").trim().toUpperCase();
         if (!q) return favorites;
         return favorites.filter((f) => {
             const market = (f.market || "").toUpperCase();
-            const name = (f.korean_name || f.koreanName || "").toUpperCase();
+            const name = (f.korean_name || f.koreanName || f.name || "").toUpperCase();
             return market.includes(q) || name.includes(q);
         });
     }, [favorites, query, tickers, markets]);
+
+    const getFavKey = (f) => {
+        return f.id ?? f._id ?? f.tradingPairId ?? f.trading_pair_id ?? f.market ?? JSON.stringify(f);
+    };
+
+    const toggleOne = (key) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const allChecked = filtered.length > 0 && selectedIds.size === filtered.length;
+
+    const toggleAll = () => {
+        if (allChecked) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filtered.map(getFavKey)));
+        }
+    };
 
     const handleAdd = async () => {
         const market = selectedFromCombo?.trim().toUpperCase();
@@ -357,6 +355,24 @@ export default function Favorites({
         } catch (err) {
             console.error("onAddFavorite error:", err);
             alert("관심코인 추가에 실패했습니다.");
+        }
+    };
+
+    const handleDeleteSelected = async () => {
+        if (selectedIds.size === 0) return alert("삭제할 항목을 선택하세요");
+        if (!confirm("선택한 관심코인을 삭제하시겠습니까?")) return;
+
+        const ids = Array.from(selectedIds);
+        if (typeof onDeleteSelected === "function") {
+            try {
+                await onDeleteSelected(ids);
+                setSelectedIds(new Set());
+            } catch (e) {
+                console.error("삭제 실패", e);
+                alert(e?.message || "삭제 실패");
+            }
+        } else {
+            alert("삭제 핸들러(onDeleteSelected)가 제공되지 않았습니다. 부모에 구현하여 전달해 주세요.");
         }
     };
 
@@ -371,13 +387,21 @@ export default function Favorites({
                     placeholder="예: KRW-BTC"
                     limit={12}
                 />
-                <button onClick={handleAdd} disabled={loading} className="px-4 py-2 bg-indigo-600 rounded">
+                {/* Add 버튼: hover 색상 변경, transition */}
+                <button
+                    onClick={handleAdd}
+                    disabled={loading}
+                    className="px-4 py-2 bg-indigo-600 rounded text-white hover:bg-indigo-500 transition-colors"
+                >
                     추가
                 </button>
             </div>
 
             <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
-                <div>코인명</div>
+                <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                    <span>코인명</span>
+                </div>
                 <div className="text-right">현재가</div>
                 <div className="text-right">전일대비</div>
                 <div className="text-right">거래대금</div>
@@ -387,24 +411,25 @@ export default function Favorites({
                 <div>관심 코인이 없습니다.</div>
             ) : (
                 filtered.map((f, idx) => {
+                    const key = getFavKey(f);
                     const ticker = getTickerInfo(f.market);
                     const price = ticker?.price;
                     const change = ticker?.change; // stored as prev - price
                     const changeRate = ticker?.changeRate;
                     const accPrice24h = ticker?.accTradePrice24h;
-
-                    // UI 표시: stored change은 prev-price 이므로 화면에는 반전해서 보여주기
                     const displayChange = change != null ? -change : null;
                     const displayRate = changeRate != null ? -changeRate : null;
-
                     const changeColor = displayChange == null ? "text-white/60" : displayChange >= 0 ? "text-red-400" : "text-blue-400";
                     const displayRateText = displayRate != null ? `${displayRate >= 0 ? "+" : ""}${displayRate.toFixed(2)}%` : "-";
 
                     return (
-                        <div key={`${f.market ?? f.id}-${idx}`} className="bg-[#0b0f1a]/70 p-3 rounded">
+                        <div key={`${key}-${idx}`} className="bg-[#0b0f1a]/70 p-3 rounded">
                             <div className="grid items-center" style={{ gridTemplateColumns: cols, gap: "1rem" }}>
-                                <div>
-                                    {f.korean_name ?? f.koreanName ?? f.name} ({(f.market ?? "").split("-")[1] ?? ""})
+                                <div className="flex items-center gap-3">
+                                    <input type="checkbox" checked={selectedIds.has(key)} onChange={() => toggleOne(key)} />
+                                    <div>
+                                        {f.korean_name ?? f.koreanName ?? f.name} ({(f.market ?? "").split("-")[1] ?? ""})
+                                    </div>
                                 </div>
 
                                 <div className="text-right">{price != null ? formatKRW(price) : "-"}</div>
@@ -417,6 +442,17 @@ export default function Favorites({
                     );
                 })
             )}
+
+            {/* 리스트 아래 오른쪽 정렬된 삭제 버튼 (겹침 제거) */}
+            <div className="flex justify-end mt-2">
+                <button
+                    onClick={handleDeleteSelected}
+                    disabled={selectedIds.size === 0}
+                    className={`px-4 py-2 rounded text-white transition-colors ${selectedIds.size === 0 ? "bg-red-500/50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"}`}
+                >
+                    선택 삭제
+                </button>
+            </div>
         </div>
     );
 }
