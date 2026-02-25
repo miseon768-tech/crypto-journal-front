@@ -218,7 +218,7 @@ export default function Layout({ children }) {
             <header className="border-b border-white/10 bg-black/30 backdrop-blur-md">
                 <div className="max-w-6xl mx-auto px-10 py-4 flex justify-between items-center">
                     <h1
-                        onClick={() => router.push("/dashboard")}
+                        onClick={() => router.push("/")}
                         className="text-lg font-semibold tracking-wide cursor-pointer hover:text-gray-300 transition"
                     >
                         Crypto Journal
@@ -270,12 +270,12 @@ export default function Layout({ children }) {
                         >
                             비밀번호
                         </button>
-                        <button
-                            onClick={() => setActiveTab("preferences")}
-                            className={`flex-1 px-3 py-2 rounded ${activeTab === "preferences" ? "bg-indigo-600" : "bg-white/5"}`}
-                        >
-                            환경설정
-                        </button>
+                        {/*<button*/}
+                        {/*    onClick={() => setActiveTab("preferences")}*/}
+                        {/*    className={`flex-1 px-3 py-2 rounded ${activeTab === "preferences" ? "bg-indigo-600" : "bg-white/5"}`}*/}
+                        {/*>*/}
+                        {/*    환경설정*/}
+                        {/*</button>*/}
                     </div>
 
                     <div className="p-4 border-t border-white/5">
