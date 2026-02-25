@@ -3,34 +3,36 @@ import { useEffect } from "react";
 
 export default function GoogleCallback() {
     const router = useRouter();
-    const { code, state } = router.query;
 
     useEffect(() => {
-        if (!code) return;
+        if (!router.query.code) return;
 
-        const origin = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_BASE_URL || '');
-        const pathname = typeof window !== "undefined" ? window.location.pathname : '/google/callback';
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        const redirectUri = `${origin}/google/callback`;
 
-        let params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : '');
-        // 제거할 파라미터: code, scope, error, authuser (가능성 있는 것들)
-        params.delete("code");
-        params.delete("scope");
-        params.delete("error");
-        params.delete("authuser");
+        const url = `http://localhost:8080/api/auth/google?code=${encodeURIComponent(router.query.code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+        console.log("API 호출 URL:", url);
 
-        const preservedQuery = params.toString();
-        const redirectUri = `${origin}${pathname}${preservedQuery ? `?${preservedQuery}` : ''}`;
+        fetch(url)
+            .then((response) => response.json())
+            .then((json) => {
+                // 최신 member 구조 반영
+                const token = json.token;
+                const member = json.member;
 
-        console.log('[GoogleCallback] reconstructed redirectUri=', redirectUri);
+                if (token && member) {
+                    localStorage.setItem("token", token);
+                    localStorage.setItem("member", JSON.stringify(member));
+                    router.push("/dashboard");
+                } else {
+                    alert("구글 로그인 실패: 서버 응답 불완전");
+                }
+            })
+            .catch((err) => {
+                console.error("구글 로그인 에러", err);
+                alert("구글 로그인 실패");
+            });
+    }, [router.query.code]);
 
-        router.replace(
-            `/login?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}&provider=google&redirectUri=${encodeURIComponent(redirectUri)}`
-        );
-    }, [code, state, router]);
-
-    return (
-        <div className="flex items-center justify-center min-h-screen">
-            <p className="text-lg">Google 로그인 처리 중...</p>
-        </div>
-    );
+    return <div>구글 로그인 처리중...</div>;
 }

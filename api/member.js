@@ -1,3 +1,7 @@
+// /src/lib/apiMember.js
+// 회원/토큰 관련 API
+// 로그인, 회원가입, 이메일 인증, 내 정보 조회/수정, 비밀번호 변경, 회원 탈퇴
+
 const API_HOST = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
 const API_BASE = `${API_HOST.replace(/\/$/, '')}/api/member`;
 
@@ -42,7 +46,6 @@ export const getStoredToken = (incoming) => {
         }
         const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+\/=]*$/;
         if (jwtRegex.test(s)) return s;
-        // 마지막으로 문자열이지만 JWT가 아닐 경우 그대로 반환(디버그용)
         return s;
     }
 
@@ -70,18 +73,27 @@ export const removeToken = () => {
 };
 
 // ------------------------
+// 인증 실패시 자동 로그아웃/처리(공통)
+// ------------------------
+const handleAuthFailure = (msg = "로그인 세션이 만료되었습니다. 다시 로그인해 주세요.") => {
+    removeToken();
+    alert(msg);
+    if (typeof window !== 'undefined') {
+        window.location.href = "/login";
+    }
+};
+
+// ------------------------
 // 공통 fetch (토큰 포함)
 // ------------------------
 const authFetch = async (url, options = {}) => {
     const token = options.token || getStoredToken();
     if (!token) {
-        // 더 명확한 에러 객체를 만들어 호출자에서 처리하기 쉽게 함
+        handleAuthFailure("토큰이 없습니다. 다시 로그인 해주세요.");
         const e = new Error('토큰이 없습니다. 로그인 후 토큰을 저장하세요.');
         e.status = 401;
         throw e;
     }
-
-    // ensure token is string
     const tokenStr = typeof token === 'string' ? token : String(token);
 
     const res = await fetch(url, {
@@ -93,8 +105,10 @@ const authFetch = async (url, options = {}) => {
         },
     });
 
-    // 디버그: non-ok 시 응답 본문과 상태를 포함한 에러 객체 반환
     if (!res.ok) {
+        if (res.status === 401) {
+            handleAuthFailure();
+        }
         const text = await res.text().catch(() => null);
         const err = new Error(text || `HTTP ${res.status}`);
         err.status = res.status;
@@ -110,27 +124,22 @@ const authFetch = async (url, options = {}) => {
 // 로그인 / 회원가입
 // ------------------------
 export const login = async (email, password) => {
-    try {
-        const res = await fetch(`${API_BASE}/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password }),
-        });
+    const res = await fetch(`${API_BASE}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+    });
 
-        if (!res.ok) {
-            const text = await res.text().catch(() => null);
-            throw new Error(text || "로그인 실패");
-        }
-
-        const data = await res.json();
-        const token = data.token || data.accessToken || data.access_token || null;
-        if (token) setToken(token);
-
-        return { ...data, token };
-    } catch (err) {
-        console.error("Login error:", err);
-        throw new Error(err.message || "로그인 중 오류 발생");
+    if (!res.ok) {
+        const text = await res.text().catch(() => null);
+        throw new Error(text || "로그인 실패");
     }
+
+    const data = await res.json();
+    const token = data.token || data.accessToken || data.access_token || null;
+    if (token) setToken(token);
+
+    return { ...data, token };
 };
 
 export const signUp = async (data) => {
@@ -180,10 +189,6 @@ export const verifyEmailCode = async (email, code) => {
 // ------------------------
 export const getMyInfo = async (token) => {
     const res = await authFetch(`${API_BASE}/me`, { token });
-    if (!res.ok) {
-        const text = await res.text().catch(() => null);
-        throw new Error(text || "내 정보 조회 실패");
-    }
     return res.json();
 };
 
@@ -193,10 +198,6 @@ export const updateMember = async (token, data) => {
         token,
         body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const text = await res.text().catch(() => null);
-        throw new Error(text || "정보 수정 실패");
-    }
     return res.json();
 };
 
@@ -206,10 +207,6 @@ export const changePassword = async (token, data) => {
         token,
         body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const text = await res.text().catch(() => null);
-        throw new Error(text || "비밀번호 변경 실패");
-    }
     return res.json();
 };
 
@@ -219,9 +216,5 @@ export const deleteMember = async (token, password) => {
         token,
         body: JSON.stringify({ password }),
     });
-    if (!res.ok) {
-        const text = await res.text().catch(() => null);
-        throw new Error(text || "회원 탈퇴 실패");
-    }
     return res.json();
 };

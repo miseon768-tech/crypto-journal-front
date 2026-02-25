@@ -4,15 +4,43 @@ import { getStoredToken } from "./member";
 const API_BASE =
     process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080/api/market";
 
-export const getAllMarkets = async () => {
+// Robust JWT 유효성 검사 함수
+function resolveToken(token) {
+    if (!token || typeof token !== "string") return null;
+    const t = token.trim();
+    // 아래 값들은 모두 잘못된 토큰임
+    if (!t || t === "undefined" || t === "null") return null;
+    return t;
+}
 
-    const token = getStoredToken(localStorage?.getItem?.("token"));
+// 인증 실패시 자동 로그아웃 및 페이지 이동 지원
+function handleAuthFailure(router) {
+    alert("로그인 정보가 만료되었거나 인증 오류입니다. 다시 로그인 해주세요.");
+    localStorage.removeItem("token");
+    if (router && typeof router.push === "function") {
+        router.push("/login");
+    }
+}
 
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+export const getAllMarkets = async (router) => {
+    const rawToken = localStorage.getItem("token");
+    const token = resolveToken(rawToken);
 
-    const res = await axios.get(`${API_BASE}/all`, {
-        headers,
-    });
+    const headers = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
 
-    return res.data;
+    try {
+        const res = await axios.get(`${API_BASE}/all`, {
+            headers,
+        });
+        return res.data;
+    } catch (err) {
+        if (err.response && err.response.status === 401) {
+            handleAuthFailure(router);
+        } else {
+            alert("네트워크 또는 서버 오류");
+        }
+        throw err;
+    }
 };

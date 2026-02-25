@@ -1,11 +1,6 @@
-// 안전한 토큰 저장/복원용 간단 스토어
-// - 토큰은 항상 문자열로만 저장/전달되도록 정규화
-// - getStoredToken 재사용하여 [object Object] 같은 입력을 처리
-
 import { getStoredToken } from "../api/member";
 
 /* ---------- Helpers ---------- */
-
 function isFalsyString(s) {
     if (s == null) return true;
     if (typeof s !== "string") return false;
@@ -20,7 +15,6 @@ const listeners = new Set();
 function emit() { listeners.forEach(cb => { try { cb(); } catch (e) {} }); }
 
 export function useAccount() {
-    // Lazy initialize from localStorage
     if (typeof window !== 'undefined' && _account === null) {
         try { const raw = localStorage.getItem('account'); if (raw) _account = JSON.parse(raw); } catch (e) {}
     }
@@ -39,16 +33,31 @@ export function useAccount() {
 
 export function useToken() {
     if (typeof window !== 'undefined' && _token === null) {
-        try { const raw = localStorage.getItem('token'); if (raw) _token = String(raw); } catch (e) {}
+        try {
+            const raw = localStorage.getItem('token');
+            if (raw && !isFalsyString(raw)) _token = String(raw).trim();
+        } catch (e) {}
     }
 
     const setToken = (t) => {
-        // normalize using shared helper - ensures token is plain string (extract from object if necessary)
+        // 반드시 "정상 JWT"만 저장, 나머지는 삭제
         let normalized = null;
-        try { normalized = getStoredToken(t) || (t != null ? String(t) : null); } catch (e) { try { normalized = t != null ? String(t) : null; } catch (ee) { normalized = null; } }
+        try {
+            normalized = getStoredToken(t);
+        } catch (e) {
+            normalized = null;
+        }
 
-        _token = normalized;
-        try { if (normalized) localStorage.setItem('token', String(normalized)); else localStorage.removeItem('token'); } catch (e) {}
+        // 정상 토큰 패턴이 아니면 저장 안 함
+        const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+\/=]*$/;
+        if (!normalized || !jwtRegex.test(normalized.trim())) {
+            _token = null;
+            try { localStorage.removeItem('token'); } catch (e) {}
+            emit();
+            return;
+        }
+        _token = normalized.trim();
+        try { localStorage.setItem('token', _token); } catch (e) {}
         emit();
     };
 

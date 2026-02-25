@@ -3,32 +3,36 @@ import { useEffect } from "react";
 
 export default function NaverCallback() {
     const router = useRouter();
-    const { code, state } = router.query;
 
     useEffect(() => {
-        if (!code) return;
+        if (!router.query.code) return;
 
-        const origin = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_BASE_URL || '');
-        const pathname = typeof window !== 'undefined' ? window.location.pathname : '/naver/callback';
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        const redirectUri = `${origin}/naver/callback`;
 
-        let params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-        params.delete('code');
-        params.delete('state');
-        params.delete('error');
+        const url = `http://localhost:8080/api/auth/naver?code=${encodeURIComponent(router.query.code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+        console.log("API 호출 URL:", url);
 
-        const preservedQuery = params.toString();
-        const redirectUri = `${origin}${pathname}${preservedQuery ? `?${preservedQuery}` : ''}`;
+        fetch(url)
+            .then((response) => response.json())
+            .then((json) => {
+                // 최신 member 구조 반영
+                const token = json.token;
+                const member = json.member;
 
-        console.log('[NaverCallback] reconstructed redirectUri=', redirectUri);
+                if (token && member) {
+                    localStorage.setItem("token", token);
+                    localStorage.setItem("member", JSON.stringify(member));
+                    router.push("/dashboard");
+                } else {
+                    alert("네이버 로그인 실패: 서버 응답 불완전");
+                }
+            })
+            .catch((err) => {
+                console.error("네이버 로그인 에러", err);
+                alert("네이버 로그인 실패");
+            });
+    }, [router.query.code]);
 
-        router.replace(
-            `/login?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}&provider=naver&redirectUri=${encodeURIComponent(redirectUri)}`
-        );
-    }, [code, state, router]);
-
-    return (
-        <div className="flex items-center justify-center min-h-screen">
-            <p className="text-lg">Naver 로그인 처리 중...</p>
-        </div>
-    );
+    return <div>네이버 로그인 처리중...</div>;
 }
