@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getStoredToken } from "./member";
 
-const API_HOST = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
+const API_HOST = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://43.201.97.58:8081").replace(/\/$/, "");
 
 const API_BASE = `${API_HOST}/api/KRWAssets/summary`;
 

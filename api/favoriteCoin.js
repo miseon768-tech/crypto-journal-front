@@ -1,4 +1,4 @@
-const API_BASE = `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"}/api/assets/favorites`;
+const API_BASE = `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://43.201.97.58:8081"}/api/assets/favorites`;
 
 import { getStoredToken } from './member';
 

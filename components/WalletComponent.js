@@ -153,7 +153,7 @@ export default function WalletComponent() {
     useEffect(() => {
         if (!token) return;
 
-        const backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://localhost:8080/ws";
+        const backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://43.201.97.58:8081/ws";
 
         try {
             stompClientRef.current?.deactivate();

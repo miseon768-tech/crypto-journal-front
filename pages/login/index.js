@@ -55,7 +55,7 @@ export default function Login() {
             try {
                 const origin = (typeof window !== 'undefined' && window.location.origin) || '';
                 const redirectUri = queryRedirectUri ? decodeURIComponent(queryRedirectUri) : `${origin}/${provider}/callback`;
-                const url = `http://localhost:8080/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+                const url = `http://43.201.97.58:8081/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
 
                 const res = await fetch(url);
                 const data = await res.json();

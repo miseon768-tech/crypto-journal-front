@@ -2,7 +2,7 @@ import axios from "axios";
 import { getStoredToken } from "./member";
 
 const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080/api/market";
+    process.env.NEXT_PUBLIC_API_BASE || "http://43.201.97.58:8081/api/market";
 
 // Robust JWT 유효성 검사 함수
 function resolveToken(token) {

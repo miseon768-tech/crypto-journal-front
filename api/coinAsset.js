@@ -1,7 +1,7 @@
 import { getStoredToken } from "./member";
 
 const API_BASE = `${
-    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://43.201.97.58:8081"
 }/api/coin/assets`;
 
 // 토큰 기반 Authorization 헤더

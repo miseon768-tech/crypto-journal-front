@@ -134,7 +134,7 @@ export default function RealtimeComponent({trading_pairs = []}) {
     useEffect(() => {
         const initWebSocket = async () => {
             const token = getStoredToken();
-            const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
+            const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://43.201.97.58:8081").replace(/\/$/, "");
             const sockUrl = `${BACKEND}/ws`;
 
             let Client, SockJS;

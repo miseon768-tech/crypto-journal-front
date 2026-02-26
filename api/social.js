@@ -1,5 +1,5 @@
 export async function socialLogin(provider, code, redirectUri) {
-    const apiAddress = "http://localhost:8080";
+    const apiAddress = "http://43.201.97.58:8081";
     const url = `${apiAddress}/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
 
     const response = await fetch(url);

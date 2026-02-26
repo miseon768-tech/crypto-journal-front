@@ -10,7 +10,7 @@ export default function NaverCallback() {
         const origin = typeof window !== "undefined" ? window.location.origin : "";
         const redirectUri = `${origin}/naver/callback`;
 
-        const url = `http://localhost:8080/api/auth/naver?code=${encodeURIComponent(router.query.code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+        const url = `http://43.201.97.58:8081/api/auth/naver?code=${encodeURIComponent(router.query.code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
         console.log("API 호출 URL:", url);
 
         fetch(url)
