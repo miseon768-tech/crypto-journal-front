@@ -2,7 +2,7 @@ import axios from "axios";
 import { getStoredToken } from "./member";
 
 // ✅ 백엔드 경로에 맞춰서 수정!
-const API_BASE = process.env.NEXT_PUBLIC_KRW_API_BASE || "http://43.201.97.58:8081/api/assets";
+const API_BASE = process.env.NEXT_PUBLIC_KRW_API_BASE || "http://43.201.97.58.nip.io:8081/api/assets";
 
 /**
  * 공통 요청 함수

@@ -2,7 +2,7 @@
 // 회원/토큰 관련 API
 // 로그인, 회원가입, 이메일 인증, 내 정보 조회/수정, 비밀번호 변경, 회원 탈퇴
 
-const API_HOST = process.env.NEXT_PUBLIC_BACKEND_URL || "http://43.201.97.58:8081";
+const API_HOST = process.env.NEXT_PUBLIC_BACKEND_URL || "http://43.201.97.58.nip.io:8081";
 const API_BASE = `${API_HOST.replace(/\/$/, '')}/api/member`;
 
 // ------------------------

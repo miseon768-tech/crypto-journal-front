@@ -2,7 +2,7 @@ import fetch from 'node-fetch';
 import { Client } from '@stomp/stompjs';
 import WebSocket from 'ws';
 
-const BACKEND = process.env.BACKEND || 'http://43.201.97.58:8081';
+const BACKEND = process.env.BACKEND || 'http://43.201.97.58.nip.io:8081';
 const WS_HOST = (process.env.BACKEND_WS || 'ws://43.201.97.58:8081') + '/ws/websocket';
 const EMAIL = process.env.TEST_EMAIL || 'merujens@naver.com';
 const PASS = process.env.TEST_PASS || 'Miseon8976!';

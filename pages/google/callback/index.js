@@ -10,7 +10,7 @@ export default function GoogleCallback() {
         const origin = typeof window !== "undefined" ? window.location.origin : "";
         const redirectUri = `${origin}/google/callback`;
 
-        const url = `http://43.201.97.58:8081/api/auth/google?code=${encodeURIComponent(router.query.code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+        const url = `http://43.201.97.58.nip.io:8081/api/auth/google?code=${encodeURIComponent(router.query.code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
         console.log("API 호출 URL:", url);
 
         fetch(url)
