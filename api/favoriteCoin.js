@@ -1,12 +1,29 @@
 const API_BASE = `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080"}/api/assets/favorites`;
 
+import { getStoredToken } from './member';
+
 // 🟢 Robust 토큰 파싱 및 유효성 체크!
 function resolveToken(token) {
-    if (!token || typeof token !== "string") return null;
-    // 빈 값, "undefined", "null" 문자열 방지!
-    const t = token.trim();
-    if (!t || t === "undefined" || t === "null") return null;
-    return t;
+    // 우선 간단한 문자열 검사
+    if (token && typeof token === 'string') {
+        const t = token.trim();
+        if (!t || t === 'undefined' || t === 'null') return null;
+        return t;
+    }
+
+    // token이 객체나 다른 형태로 들어왔을 때 member.getStoredToken을 사용해 정상 토큰 문자열을 추출
+    try {
+        const extracted = getStoredToken(token);
+        if (extracted && typeof extracted === 'string') {
+            const s = extracted.trim();
+            if (!s || s === 'undefined' || s === 'null') return null;
+            return s;
+        }
+    } catch (e) {
+        // 무시하고 null 반환
+    }
+
+    return null;
 }
 
 // 🟢 Authorization 헤더 일관성 있게 생성
@@ -26,16 +43,85 @@ async function parseResponseBody(res) {
     try { return JSON.parse(text); } catch { return text; }
 }
 
+// 다양한 백 응답에서 배열을 추출하는 헬퍼
 function extractArrayFromBody(body) {
-    // ... (기존 로직 동일)
-    // 생략 없이 사용 (원래 robust 패턴이라 OK)
-    // ...
+    if (!body) return null;
+    if (Array.isArray(body)) return body;
+
+    // common wrappers
+    const candidates = [
+        body.favoriteCoinList,
+        body.favorite_coin_list,
+        body.favorite_list,
+        body.items,
+        body.data?.favoriteCoinList,
+        body.data?.items,
+        body.data?.favorite_list,
+        body.data?.items,
+    ];
+
+    for (const c of candidates) {
+        if (Array.isArray(c)) return c;
+    }
+
+    // sometimes backend returns { favoriteCoin: {...} }
+    if (body.favoriteCoin && typeof body.favoriteCoin === 'object') return [body.favoriteCoin];
+    if (body.favorite_coin && typeof body.favorite_coin === 'object') return [body.favorite_coin];
+
+    // sometimes backend returns { data: {...} }
+    if (body.data && typeof body.data === 'object') {
+        const arr = extractArrayFromBody(body.data);
+        if (Array.isArray(arr)) return arr;
+        // or single entry in data
+        if (body.data.favoriteCoin && typeof body.data.favoriteCoin === 'object') return [body.data.favoriteCoin];
+    }
+
+    // lastly, if object looks like a single favorite entry, return it
+    const maybeObj = body;
+    if (typeof maybeObj === 'object') {
+        const keys = Object.keys(maybeObj);
+        const hasKey = keys.some(k => ['market','tradingPairId','trading_pair_id','id','favoriteId','coin'].includes(k));
+        if (hasKey) return [maybeObj];
+    }
+
+    return null;
 }
 
+// 엔트리를 일관된 형태로 정규화 (최소 필드: id, market, tradingPairId, raw)
 function normalizeFavoriteEntry(raw) {
-    // ... (기존 로직 동일)
-    // 생략 없이 사용
-    // ...
+    if (!raw || typeof raw !== 'object') return raw;
+    const out = { raw };
+
+    // id candidates
+    out.id = raw.id ?? raw._id ?? raw.favoriteId ?? raw.favorite_id ?? null;
+
+    // trading pair id
+    out.tradingPairId = raw.tradingPairId ?? raw.trading_pair_id ?? raw.trading_pair ?? raw.tpId ?? raw.tradingPair ?? null;
+
+    // market symbol
+    out.market = raw.market ?? raw.code ?? raw.symbol ?? raw.marketName ?? raw.market_name ?? null;
+
+    // extra friendly names
+    out.korean_name = raw.korean_name ?? raw.koreanName ?? raw.name ?? raw.korean ?? null;
+    out.english_name = raw.english_name ?? raw.englishName ?? null;
+
+    // tradingPair object extraction
+    if (!out.market && raw.tradingPair && typeof raw.tradingPair === 'object') {
+        out.market = raw.tradingPair.market ?? raw.tradingPair.symbol ?? raw.tradingPair.code ?? out.market;
+        out.korean_name = out.korean_name || raw.tradingPair.korean_name || raw.tradingPair.koreanName || null;
+        out.english_name = out.english_name || raw.tradingPair.english_name || raw.tradingPair.englishName || null;
+    }
+
+    // normalize market format: e.g., BTC -> KRW-BTC if needed left for UI
+    if (typeof out.market === 'string') {
+        let s = out.market.trim();
+        if (s && !s.includes('-')) {
+            // do not force-prefix, keep as-is; UI can normalize later
+            out.market = s.toUpperCase();
+        } else if (s) out.market = s.toUpperCase();
+    }
+
+    return out;
 }
 
 // 🟢 관심 코인 추가
@@ -94,7 +180,10 @@ export const addFavoriteCoin = async (coinInput, token) => {
 // 🟢 관심 코인 리스트 반환
 export const getFavoriteCoins = async (token) => {
     const t = resolveToken(token);
-    if (!t) return [];
+    if (!t) {
+        console.debug('[api/favoriteCoin] getFavoriteCoins - no token resolved', { incoming: token });
+        return [];
+    }
 
     const headers = authHeader(t);
     const res = await fetch(API_BASE, {
@@ -103,6 +192,10 @@ export const getFavoriteCoins = async (token) => {
     });
 
     const body = await parseResponseBody(res);
+
+    if (!res.ok) {
+        console.error('[api/favoriteCoin] getFavoriteCoins non-ok response', { status: res.status, body });
+    }
 
     if (res.status === 404 || res.status === 204) return [];
 
@@ -129,8 +222,7 @@ export const getFavoriteCoins = async (token) => {
 
     if (!arr) arr = [];
 
-    const normalized = arr.map(normalizeFavoriteEntry);
-    return normalized;
+    return arr.map(normalizeFavoriteEntry);
 };
 
 // 🟢 선택 코인 삭제
