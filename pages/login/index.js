@@ -55,7 +55,8 @@ export default function Login() {
             try {
                 const origin = (typeof window !== 'undefined' && window.location.origin) || '';
                 const redirectUri = queryRedirectUri ? decodeURIComponent(queryRedirectUri) : `${origin}/${provider}/callback`;
-                const url = `http://43.201.97.58:8081/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+                const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://43.201.97.58.nip.io:8081";
+                const url = `${backendUrl}/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
 
                 const res = await fetch(url);
                 const data = await res.json();
