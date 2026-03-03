@@ -153,12 +153,23 @@ export default function WalletComponent() {
     useEffect(() => {
         if (!token) return;
 
-        const backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://43.201.97.58.nip.io:8081/ws";
+        // 환경에 따라 백엔드 소켓 주소 자동 결정
+        let backendWsUrl;
+        const isLocalhost =
+            typeof window !== "undefined" &&
+            (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
+        if (isLocalhost) {
+            // 로컬 백엔드는 보통 8080(Spring Boot 기본)에서 실행됨
+            backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://localhost:8080/ws";
+        } else {
+            backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://43.201.97.58.nip.io:8081/ws";
+        }
+        console.log("[WS] Connecting to:", backendWsUrl);
         try {
             stompClientRef.current?.deactivate();
         } catch (e) {
-            /* ignore */
+            console.warn("[WS] Previous client deactivate error:", e);
         }
 
         const client = new Client({
@@ -167,10 +178,11 @@ export default function WalletComponent() {
             heartbeatIncoming: 0,
             heartbeatOutgoing: 20000,
             connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+            debug: (str) => console.log("[STOMP DEBUG]", str),
             onConnect: () => {
+                console.log("[WS] STOMP Connected");
                 client.subscribe("/topic/ticker", (msg) => {
                     if (!msg || !msg.body) return;
-
                     try {
                         const payload = JSON.parse(msg.body);
 
@@ -262,8 +274,12 @@ export default function WalletComponent() {
                     }
                 });
             },
-            onStompError: (frame) => console.error("STOMP error", frame),
-            onDisconnect: () => {},
+            onStompError: (frame) => {
+                console.error("[WS] STOMP error", frame);
+            },
+            onDisconnect: () => {
+                console.warn("[WS] Disconnected");
+            },
         });
 
         client.activate();
@@ -272,7 +288,9 @@ export default function WalletComponent() {
         return () => {
             try {
                 stompClientRef.current?.deactivate();
-            } catch (e) {}
+            } catch (e) {
+                console.warn("[WS] Cleanup deactivate error:", e);
+            }
         };
     }, [token]);
 
