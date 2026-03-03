@@ -153,18 +153,10 @@ export default function WalletComponent() {
     useEffect(() => {
         if (!token) return;
 
-        // 환경에 따라 백엔드 소켓 주소 자동 결정
-        let backendWsUrl;
-        const isLocalhost =
-            typeof window !== "undefined" &&
-            (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+        const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
+        const backendWsUrl = `${backendBaseUrl}/ws`;
 
-        if (isLocalhost) {
-            // 로컬 백엔드는 보통 8080(Spring Boot 기본)에서 실행됨
-            backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://localhost:8080/ws";
-        } else {
-            backendWsUrl = process.env.REACT_APP_BACKEND_WS_URL || "http://43.201.97.58.nip.io:8081/ws";
-        }
+        console.log("[WS] Connecting to:", backendWsUrl);
         console.log("[WS] Connecting to:", backendWsUrl);
         try {
             stompClientRef.current?.deactivate();
