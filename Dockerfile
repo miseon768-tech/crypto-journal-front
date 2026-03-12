@@ -8,7 +8,7 @@ RUN npm config set registry https://registry.npmjs.org/ \
 	&& npm ci
 COPY . .
 
-ARG NEXT_PUBLIC_BACKEND_URL=http://43.201.97.58.nip.io:8081
+ARG NEXT_PUBLIC_BACKEND_URL=http://3.36.109.46.nip.io:8080
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 RUN npm run build
 
