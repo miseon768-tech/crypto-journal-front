@@ -33,13 +33,7 @@ import SockJS from "sockjs-client";
 
 /**
  * WalletComponent - Wallet 전체(보유자산 / 보유코인 / 포트폴리오 / 관심코인)
- * 관심코인 탭은 별도 Favorites 컴포넌트로 분리하여 사용합니다.
- *
- * 변경 요약:
- * - Favorites 컴포넌트에 부모의 선택���제 핸들러를 onDeleteSelected로 전달하도록 수정
- * - 부모에서 관리하던 selectedFavIds / toggleSelectFavorite 관련 prop 전달 제거 (Favorites 내부에서 선택 관리)
  */
-
 export default function WalletComponent() {
     const [activeTab, setActiveTab] = useState("myAssets");
 
@@ -60,7 +54,6 @@ export default function WalletComponent() {
     const [favorites, setFavorites] = useState([]);
 
     const [krwInput, setKrwInput] = useState("");
-
     const [coinInput, setCoinInput] = useState("");
     const [coinBalanceInput, setCoinBalanceInput] = useState("");
     const [coinAvgPriceInput, setCoinAvgPriceInput] = useState("");
@@ -71,11 +64,8 @@ export default function WalletComponent() {
     const [editAvgBuyPrice, setEditAvgBuyPrice] = useState("");
 
     const [coinFilter, setCoinFilter] = useState("");
-
-    // favorites UI state (keep favInput if you want to reuse later)
     const [favInput, setFavInput] = useState("");
 
-    // STOMP / tickers
     const [tickers, setTickers] = useState({});
     const pendingTickersRef = useRef({});
     const stompClientRef = useRef(null);
@@ -97,7 +87,6 @@ export default function WalletComponent() {
     useEffect(() => {
         if (!token) return;
         fetchAll();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
     // --------- Helpers ----------
@@ -114,7 +103,6 @@ export default function WalletComponent() {
     const extractMarket = (c) => {
         if (!c) return "";
         if (typeof c.market === "string" && c.market.trim()) return c.market.trim();
-
         const tp = c.tradingPair ?? c.trading_pair;
         if (tp && typeof tp === "object") {
             const candidates = [tp.market, tp.symbol, tp.name, tp.english_name, tp.korean_name];
@@ -122,135 +110,39 @@ export default function WalletComponent() {
                 if (typeof x === "string" && x.trim()) return x.trim();
             }
         }
-
-        if (typeof tp === "string" && tp.trim()) return tp.trim();
-        if (typeof tp === "number") return String(tp);
-
-        const alt = c.market_name ?? c.marketString ?? c.symbol ?? c.coinSymbol;
-        if (typeof alt === "string" && alt.trim()) return alt.trim();
-
         return "";
     };
 
     const extractSymbol = (c, marketStr) => {
-        if (typeof marketStr === "string" && marketStr.includes("-")) {
-            return marketStr.split("-")[1];
-        }
+        if (typeof marketStr === "string" && marketStr.includes("-")) return marketStr.split("-")[1];
         const tp = c?.tradingPair ?? c?.trading_pair;
-        if (tp && typeof tp === "object") {
-            return tp.symbol ?? tp.english_name ?? tp.korean_name ?? tp.name ?? "";
-        }
-        if (typeof c.coinSymbol === "string" && c.coinSymbol.trim()) return c.coinSymbol.trim();
-        if (typeof c.symbol === "string" && c.symbol.trim()) return c.symbol.trim();
-        return typeof marketStr === "string" && marketStr ? marketStr : "";
+        if (tp && typeof tp === "object") return tp.symbol ?? tp.english_name ?? "";
+        return "";
     };
 
-    const calcBuyAmount = (coinBalance, avgBuyPrice) => {
-        return Math.round((Number(coinBalance) || 0) * (Number(avgBuyPrice) || 0));
-    };
+    const calcBuyAmount = (coinBalance, avgBuyPrice) => Math.round((Number(coinBalance) || 0) * (Number(avgBuyPrice) || 0));
 
-    // --------- STOMP / SockJS 연결 ----------
+    // --------- STOMP 연결 ----------
     useEffect(() => {
         if (!token) return;
-
         const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
         const backendWsUrl = `${backendBaseUrl}/ws`;
-
-        console.log("[WS] Connecting to:", backendWsUrl);
-        console.log("[WS] Connecting to:", backendWsUrl);
-        try {
-            stompClientRef.current?.deactivate();
-        } catch (e) {
-            console.warn("[WS] Previous client deactivate error:", e);
-        }
 
         const client = new Client({
             webSocketFactory: () => new SockJS(backendWsUrl),
             reconnectDelay: 5000,
-            heartbeatIncoming: 0,
-            heartbeatOutgoing: 20000,
-            connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
-            debug: (str) => console.log("[STOMP DEBUG]", str),
+            connectHeaders: { Authorization: `Bearer ${token}` },
             onConnect: () => {
-                console.log("[WS] STOMP Connected");
                 client.subscribe("/topic/ticker", (msg) => {
-                    if (!msg || !msg.body) return;
                     try {
                         const payload = JSON.parse(msg.body);
-
-                        const marketRaw =
-                            payload.market ??
-                            payload.code ??
-                            payload.marketName ??
-                            payload.market_name ??
-                            (payload.ticker && payload.ticker.market) ??
-                            "";
-
-                        const priceRaw =
-                            payload.tradePrice ??
-                            payload.trade_price ??
-                            payload.price ??
-                            payload.lastPrice ??
-                            payload.last_price ??
-                            payload.close ??
-                            null;
-
-                        const prevCloseRaw =
-                            payload.prevClose ??
-                            payload.prev_close ??
-                            payload.open ??
-                            payload.yesterdayPrice ??
-                            null;
-
-                        const volumeRaw =
-                            payload.volume ??
-                            payload.tradeVolume ??
-                            payload.accTradeVolume ??
-                            payload.acc_trade_volume ??
-                            payload.acc_volume_24h ??
-                            payload.changeAmount ??
-                            null;
-
-                        const accTradePrice24hRaw =
-                            payload.accTradePrice24h ??
-                            payload.acc_trade_price_24h ??
-                            payload.accTradePrice ??
-                            payload.acc_trade_price ??
-                            null;
-
-                        const market = String(marketRaw ?? "").trim();
-                        if (!market) return;
-
-                        const normalized = normalizeMarket(market);
-
-                        const price = priceRaw != null ? Number(priceRaw) : null;
-                        const prevClose = prevCloseRaw != null ? Number(prevCloseRaw) : null;
-                        const volume = volumeRaw != null ? Number(volumeRaw) : null;
-                        const accTradePrice24h =
-                            accTradePrice24hRaw != null ? Number(accTradePrice24hRaw) : null;
-
-                        const change =
-                            price != null && prevClose != null
-                                ? price - prevClose
-                                : payload.change ?? payload.diff ?? null;
-
-                        const changeNum = change != null ? Number(change) : null;
-
-                        const changeRate =
-                            payload.changeRate ??
-                            payload.change_rate ??
-                            (changeNum != null && prevClose
-                                ? (changeNum / prevClose) * 100
-                                : null);
+                        const marketRaw = payload.market ?? payload.code ?? "";
+                        const normalized = normalizeMarket(marketRaw);
+                        if (!normalized) return;
 
                         pendingTickersRef.current[normalized] = {
-                            price: price ?? null,
-                            prevClose: prevClose ?? null,
-                            change: changeNum ?? null,
-                            changeRate: changeRate ?? null,
-                            volume: volume ?? null,
-                            accTradePrice24h: accTradePrice24h ?? null,
-                            raw: payload,
+                            price: Number(payload.tradePrice ?? payload.price ?? 0),
+                            changeRate: Number(payload.changeRate ?? 0),
                         };
 
                         if (!pendingTickersRef.current._timer) {
@@ -261,29 +153,13 @@ export default function WalletComponent() {
                                 pendingTickersRef.current = {};
                             }, 100);
                         }
-                    } catch (e) {
-                        console.error("Failed to parse ticker message", e);
-                    }
+                    } catch (e) { console.error(e); }
                 });
             },
-            onStompError: (frame) => {
-                console.error("[WS] STOMP error", frame);
-            },
-            onDisconnect: () => {
-                console.warn("[WS] Disconnected");
-            },
         });
-
         client.activate();
         stompClientRef.current = client;
-
-        return () => {
-            try {
-                stompClientRef.current?.deactivate();
-            } catch (e) {
-                console.warn("[WS] Cleanup deactivate error:", e);
-            }
-        };
+        return () => stompClientRef.current?.deactivate();
     }, [token]);
 
     // ---------- Data loaders ----------
@@ -298,6 +174,7 @@ export default function WalletComponent() {
         }
     };
 
+    // ✅ 수정된 fetchWalletData: 가져온 데이터를 summary 상태에 정확히 push 합니다.
     const fetchWalletData = async () => {
         try {
             const results = await Promise.allSettled([
@@ -315,410 +192,136 @@ export default function WalletComponent() {
                 return r && r.status === "fulfilled" ? r.value : fallback;
             };
 
+            const totalAsset = getValue(0, 0);
+            const totalEval = getValue(1, 0);
+            const totalProfit = getValue(2, 0);
+            const profitRate = getValue(3, 0);
             const cashBalanceData = getValue(5, 0);
-            const cashBalance =
-                typeof cashBalanceData === "number" ? cashBalanceData : cashBalanceData?.cashBalance ?? cashBalanceData?.cash_balance ?? 0;
+            const totalBuyAmount = getValue(6, 0);
 
-            setSummary((prev) => ({
-                ...prev,
-                cashBalance,
-            }));
+            const cashBalance = typeof cashBalanceData === "number"
+                ? cashBalanceData
+                : (cashBalanceData?.cashBalance ?? cashBalanceData?.cash_balance ?? 0);
+
+            // 데이터를 바구니(Summary)에 담습니다.
+            setSummary({
+                totalAsset: Number(totalAsset),
+                totalEval: Number(totalEval),
+                totalProfit: Number(totalProfit),
+                profitRate: String(profitRate),
+                cashBalance: Number(cashBalance),
+                totalBuyAmount: Number(totalBuyAmount),
+            });
         } catch (e) {
             console.error("Wallet fetch error:", e);
         }
     };
 
     const fetchCoins = async () => {
-        if (!token) return;
-
         try {
             const coinAssets = await getAllCoinAssets(token);
             const normalized = Array.isArray(coinAssets) ? coinAssets : [];
-
             setRawCoinAssets(normalized);
-
-            const assetPromises = normalized.map(async (c) => {
+            const prepared = normalized.map((c) => {
                 const market = extractMarket(c).trim();
-                const coinSymbol = extractSymbol(c, market) || "";
-
-                const coinName =
-                    (c?.tradingPair && (c.tradingPair.korean_name || c.tradingPair.english_name)) ||
-                    c?.korean_name ||
-                    c?.english_name ||
-                    c?.name ||
-                    coinSymbol ||
-                    "";
-
-                const buyAmount =
-                    Number(c.buyAmount ?? c.buy_amount ?? c.buy_amount_krw ?? calcBuyAmount(c.coinBalance, c.avgBuyPrice)) || 0;
-
-                const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
-                const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
-
+                const amount = Number(c.coinBalance ?? 0);
+                const avgPrice = Number(c.avgBuyPrice ?? 0);
                 return {
                     market,
-                    coinSymbol,
-                    coinName,
+                    coinSymbol: extractSymbol(c, market),
+                    coinName: c?.korean_name || c?.name || "",
                     amount,
                     avgPrice,
-                    buyAmount,
+                    buyAmount: calcBuyAmount(amount, avgPrice),
                 };
             });
-
-            const prepared = await Promise.all(assetPromises);
-            setAssets(
-                prepared.map((p) => ({
-                    ...p,
-                    evalAmount: Math.round(p.amount * p.avgPrice),
-                    profit: 0,
-                    profitRate: "0.00",
-                }))
-            );
-        } catch (e) {
-            console.error("보유코인 데이터 가져오기 실패:", e);
-            setAssets([]);
-            setRawCoinAssets([]);
-        }
+            setAssets(prepared.map(p => ({ ...p, evalAmount: p.buyAmount, profit: 0, profitRate: "0.00" })));
+        } catch (e) { console.error(e); }
     };
 
     const fetchMarkets = async () => {
-        try {
-            const data = await getAllMarkets();
-            const all = data.tradingPairs || data.trading_pairs || [];
-            const onlyKrw = all.filter((m) => String(m.market || "").toUpperCase().startsWith("KRW-"));
-            setMarkets(onlyKrw);
-        } catch (e) {
-            console.error("마켓 불러오기 실패:", e);
-        }
+        const data = await getAllMarkets();
+        const all = data.tradingPairs || [];
+        setMarkets(all.filter(m => String(m.market).startsWith("KRW-")));
     };
 
     const fetchFavorites = async () => {
-        const t = token || (typeof window !== 'undefined' ? getStoredToken(localStorage.getItem('token')) : null);
-        if (!t) {
-            setFavorites([]);
-            return;
-        }
-        try {
-            const data = await getFavoriteCoins(t);
-
-            let arr = [];
-            if (!data) {
-                arr = [];
-            } else if (Array.isArray(data)) {
-                arr = data;
-            } else if (Array.isArray(data.favoriteCoinList)) {
-                arr = data.favoriteCoinList;
-            } else if (Array.isArray(data.favorite_list)) {
-                arr = data.favorite_list;
-            } else if (Array.isArray(data.data?.favoriteCoinList)) {
-                arr = data.data.favoriteCoinList;
-            } else if (Array.isArray(data.items)) {
-                arr = data.items;
-            } else if (data.favoriteCoin) {
-                arr = [data.favoriteCoin];
-            } else {
-                const maybe = Object.values(data).find((v) => Array.isArray(v));
-                arr = Array.isArray(maybe) ? maybe : [];
-            }
-
-            const enriched = arr.map((f) => {
-                const copy = { ...f };
-
-                if (!copy.market || !String(copy.market).trim()) {
-                    const tpId = copy.tradingPairId ?? copy.trading_pair_id ?? copy.raw?.trading_pair_id ?? copy.raw?.tradingPairId ?? copy.id ?? null;
-
-                    if (tpId != null && Array.isArray(markets) && markets.length > 0) {
-                        const found = markets.find((m) =>
-                            String(m.id) === String(tpId) ||
-                            String(m._id) === String(tpId) ||
-                            String(m.tradingPairId) === String(tpId)
-                        );
-                        if (found) {
-                            copy.market = copy.market || found.market || found.code || found.symbol || null;
-                            copy.korean_name = copy.korean_name || found.korean_name || found.koreanName || found.name || null;
-                            copy._marketMeta = found;
-                        }
-                    }
-
-                    if ((!copy.market || !String(copy.market).trim()) && copy.raw) {
-                        copy.market = copy.raw.market ?? copy.raw.code ?? copy.raw.symbol ?? copy.market ?? null;
-                    }
-                }
-
-                if (copy.market) copy.market = normalizeMarket(copy.market);
-
-                return copy;
-            });
-
-            setFavorites(enriched);
-        } catch (e) {
-            console.error("관심 코인 불러오기 실패:", e);
-            setFavorites([]);
-        }
+        const data = await getFavoriteCoins(token);
+        setFavorites(Array.isArray(data) ? data : (data?.favoriteCoinList || []));
     };
 
     // ---------- Handlers ----------
     const handleAddKrw = async () => {
-        if (!krwInput || isNaN(krwInput) || Number(krwInput) <= 0) {
-            return alert("0보다 큰 금액을 입력하세요");
-        }
-        try {
-            await upsertCashBalance(token, Number(krwInput));
-            setKrwInput("");
-            await fetchWalletData();
-            alert("KRW가 성공적으로 등록되었습니다!");
-        } catch (e) {
-            console.error(e);
-            alert("KRW 등록 실패");
-        }
+        if (Number(krwInput) <= 0) return alert("금액을 확인하세요");
+        await upsertCashBalance(token, Number(krwInput));
+        setKrwInput("");
+        await fetchWalletData();
     };
 
     const handleAddCoin = async () => {
-        if (!coinInput || coinBalanceInput === "" || isNaN(coinBalanceInput)) {
-            return alert("코인과 보유수량을 정확히 입력하세요");
-        }
-        if (Number(coinBalanceInput) < 0) return alert("보유수량은 0 이상이어야 합니다.");
-
-        if (coinAvgPriceInput === "" || isNaN(coinAvgPriceInput) || Number(coinAvgPriceInput) <= 0) {
-            return alert("매수평균가(평단)를 입력하세요");
-        }
-
-        try {
-            await createCoinAsset(
-                {
-                    market: coinInput.toUpperCase(),
-                    coinBalance: Number(coinBalanceInput),
-                    avgBuyPrice: Number(coinAvgPriceInput),
-                },
-                token
-            );
-
-            setCoinInput("");
-            setCoinBalanceInput("");
-            setCoinAvgPriceInput("");
-
-            await fetchCoins();
-            await fetchWalletData();
-            alert("코인 등록 완료");
-        } catch (e) {
-            console.error(e);
-            alert("코인 등록 실패");
-        }
+        await createCoinAsset({ market: coinInput.toUpperCase(), coinBalance: Number(coinBalanceInput), avgBuyPrice: Number(coinAvgPriceInput) }, token);
+        setCoinInput(""); setCoinBalanceInput(""); setCoinAvgPriceInput("");
+        await fetchAll();
     };
 
-    const handleAddFavorite = async (marketStr) => {
-        const market = (marketStr ?? favInput ?? "").toString().trim();
-        if (!market) return alert("추가할 관심 코인을 입력하세요 (예: KRW-BTC 또는 BTC)");
-        try {
-            const result = await addFavoriteCoin(market.toUpperCase(), token);
-
-            let added = null;
-            if (result) {
-                if (result.favoriteCoin) added = result.favoriteCoin;
-                else if (result.added) added = result.added;
-                else if (result.data && result.data.favoriteCoin) added = result.data.favoriteCoin;
-                else if (typeof result === "object" && (result.market || result.tradingPair || result.id)) added = result;
-            }
-
-            if (added) {
-                setFavorites((prev) => {
-                    const keyOf = (it) => it.id ?? it._id ?? it.market ?? (it.tradingPair && it.tradingPair.market) ?? JSON.stringify(it);
-                    const addedKey = keyOf(added);
-                    const filtered = (prev || []).filter((p) => keyOf(p) !== addedKey);
-                    return [...filtered, added];
-                });
-            } else {
-                await fetchFavorites();
-            }
-
-            setFavInput("");
-            alert("관심 코인 추가 완료");
-        } catch (e) {
-            console.error("관심 코인 추가 실패", e);
-            alert(e?.message || "관심 코인 추가 실패");
-        }
-    };
-
-    const handleDeleteSelectedFavorites = async (idsParam) => {
-        // If called from Favorites without param, fall back to earlier selectedFavIds (not used now)
-        const ids = Array.isArray(idsParam) ? idsParam : [];
-        if (!ids || ids.length === 0) return alert("삭제할 항목을 선택하세요");
-        if (!confirm("선택한 관심코인을 삭제하시겠습니까?")) return;
-        try {
-            await deleteFavoriteCoin(ids, token);
-            await fetchFavorites();
-            alert("선택한 관심코인 삭제 완료");
-        } catch (e) {
-            console.error("선택 삭제 실패", e);
-            alert(e?.message || "삭제 실패");
-        }
-    };
-
-    const handleDeleteAllFavorites = async () => {
-        if (!confirm("관심코인을 모두 삭제하시겠습니까?")) return;
-        try {
-            await deleteAllFavoriteCoins(token);
-            await fetchFavorites();
-            alert("관심코인 전체 삭제 완료");
-        } catch (e) {
-            console.error("전체 삭제 실패", e);
-            alert(e?.message || "전체 삭제 실패");
-        }
+    const handleDeleteSelectedFavorites = async (ids) => {
+        if (!confirm("삭제하시겠습니까?")) return;
+        await deleteFavoriteCoin(ids, token);
+        await fetchFavorites();
     };
 
     const openDrawer = (market) => {
         setSelectedMarket(market);
+        const card = assets.find(a => a.market === market);
+        setEditCoinBalance(String(card?.amount || ""));
+        setEditAvgBuyPrice(String(card?.avgPrice || ""));
         setDrawerOpen(true);
-
-        const card = assets.find((a) => a.market === market);
-        const raw = rawCoinAssets.find((a) => extractMarket(a) === market);
-
-        setEditCoinBalance(String(card?.amount ?? raw?.coinBalance ?? ""));
-        setEditAvgBuyPrice(String(card?.avgPrice ?? raw?.avgBuyPrice ?? ""));
     };
 
-    const closeDrawer = () => {
-        setDrawerOpen(false);
-        setSelectedMarket(null);
-        setEditCoinBalance("");
-        setEditAvgBuyPrice("");
-    };
+    const closeDrawer = () => { setDrawerOpen(false); setSelectedMarket(null); };
 
     const handleSaveCoinDetail = async () => {
-        if (!selectedMarket) return;
-
-        const coinBalance = editCoinBalance === "" ? null : Number(editCoinBalance);
-        const avgBuyPrice = editAvgBuyPrice === "" ? null : Number(editAvgBuyPrice);
-
-        if (coinBalance === null || Number.isNaN(coinBalance)) return alert("보유수량을 입력하세요");
-        if (coinBalance < 0) return alert("보유수량은 0 이상이어야 합니다.");
-        if (avgBuyPrice === null || Number.isNaN(avgBuyPrice) || avgBuyPrice <= 0) return alert("매수평균가(평단)를 입력하세요");
-
-        try {
-            await updateCoinAsset({ market: selectedMarket, coinBalance, avgBuyAmount: avgBuyPrice }, token);
-            await fetchCoins();
-            await fetchWalletData();
-            closeDrawer();
-            alert("저장 완료");
-        } catch (e) {
-            console.error(e);
-            alert("저장 실패");
-        }
+        await updateCoinAsset({ market: selectedMarket, coinBalance: Number(editCoinBalance), avgBuyAmount: Number(editAvgBuyPrice) }, token);
+        await fetchAll(); closeDrawer();
     };
 
     const handleDeleteCoin = async () => {
-        if (!selectedMarket) return;
-        if (!confirm(`${selectedMarket} 자산을 삭제할까요?`)) return;
-
-        try {
-            await deleteCoinAsset(selectedMarket, token);
-            await fetchCoins();
-            await fetchWalletData();
-            closeDrawer();
-        } catch (e) {
-            console.error("코인 삭제 실패", e);
-            alert("코인 삭제 실패");
-        }
+        await deleteCoinAsset(selectedMarket, token);
+        await fetchAll(); closeDrawer();
     };
 
-    const getTickerPriceValue = (marketKey) => {
-        if (!marketKey) return undefined;
-        const k1 = marketKey;
-        const k2 = marketKey.replace("-", "");
-        const val = tickers?.[k1] ?? tickers?.[k2];
-        if (val === undefined || val === null) return undefined;
-        if (typeof val === "number") return val;
-        return val.price ?? val.tradePrice ?? val.lastPrice ?? undefined;
-    };
-
+    // ---------- 실시간 가격 반영 로직 ----------
     useEffect(() => {
         const newAssets = rawCoinAssets.map((c) => {
-            const marketRaw = extractMarket(c).trim();
-            const market = normalizeMarket(marketRaw);
-            const amount = Number(c.coinBalance ?? c.coin_balance ?? c.amount ?? 0);
-            const avgPrice = Number(c.avgBuyPrice ?? c.avg_buy_price ?? c.avg_price ?? 0);
-
-            const tickerPrice = getTickerPriceValue(market);
-            const currentPrice = tickerPrice !== undefined ? tickerPrice : avgPrice;
-
+            const market = normalizeMarket(extractMarket(c));
+            const amount = Number(c.coinBalance ?? 0);
+            const avgPrice = Number(c.avgBuyPrice ?? 0);
+            const currentPrice = tickers[market]?.price || avgPrice;
             const evalAmount = Math.round(amount * currentPrice);
-            const profit = Math.round(amount * (currentPrice - avgPrice));
-            const buyAmount = Number(c.buyAmount ?? c.buy_amount ?? c.buy_amount_krw ?? Math.round(amount * avgPrice)) || 0;
-            const profitRate = buyAmount ? ((profit / buyAmount) * 100).toFixed(2) : "0.00";
-            const coinSymbol = extractSymbol(c, market) || "";
+            const buyAmount = Math.round(amount * avgPrice);
+            const profit = evalAmount - buyAmount;
 
             return {
                 market,
-                coinSymbol,
-                coinName:
-                    (c?.tradingPair && (c.tradingPair.korean_name || c.tradingPair.english_name)) ||
-                    c?.korean_name ||
-                    c?.english_name ||
-                    c?.name ||
-                    coinSymbol ||
-                    "",
+                coinSymbol: extractSymbol(c, market),
                 amount,
                 avgPrice,
                 buyAmount,
                 evalAmount,
                 profit,
-                profitRate,
+                profitRate: buyAmount ? ((profit / buyAmount) * 100).toFixed(2) : "0.00"
             };
         });
 
         setAssets(newAssets);
-
-        const totalEval = newAssets.reduce((s, a) => s + (a.evalAmount || 0), 0);
-        const totalProfit = newAssets.reduce((s, a) => s + (a.profit || 0), 0);
-        const totalBuy = newAssets.reduce((s, a) => s + (a.buyAmount || 0), 0);
-        const cashBalance = summary.cashBalance ?? 0;
-        const totalAsset = totalEval + cashBalance;
-        const profitRate = totalBuy ? ((totalProfit / totalBuy) * 100).toFixed(2) : "0.00";
-
-        setSummary((prev) => ({
-            ...prev,
-            totalEval,
-            totalProfit,
-            totalBuyAmount: totalBuy,
-            totalAsset,
-            profitRate,
-            cashBalance,
-        }));
-
-        const portfolioItems = newAssets.map((a) => ({
-            assetName: a.coinSymbol || a.market,
-            market: a.market,
-            valuation: a.evalAmount,
-        }));
-
-        const totalAssetsForPercent = totalAsset || 1;
-        const portfolioWithPercent = portfolioItems.map((p) => ({
-            tradingPair: p.assetName,
-            percent: totalAssetsForPercent === 0 ? 0 : (p.valuation / totalAssetsForPercent) * 100,
-            valuation: p.valuation,
-            market: p.market,
-        }));
-
-        portfolioWithPercent.push({
-            tradingPair: "KRW",
-            percent: totalAssetsForPercent === 0 ? 0 : (cashBalance / totalAssetsForPercent) * 100,
-            valuation: cashBalance,
-            market: "KRW",
-        });
-
-        setPortfolio(portfolioWithPercent);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rawCoinAssets, tickers]);
+        // 포트폴리오 및 요약 계산은 Summary 상태에 의존하여 MyAssets에서 렌더링됩니다.
+    }, [tickers, rawCoinAssets]);
 
     const filteredAssets = useMemo(() => {
         const q = coinFilter.trim().toUpperCase();
-        if (!q) return assets;
-        return assets.filter(
-            (a) => a.market?.toUpperCase().includes(q) || a.coinSymbol?.toUpperCase().includes(q) || a.coinName?.toUpperCase().includes(q)
-        );
+        return q ? assets.filter(a => a.market.includes(q) || a.coinSymbol.includes(q)) : assets;
     }, [assets, coinFilter]);
 
-    // ---------- Render ----------
     return (
         <div className="text-white">
             <div className="px-4 pt-3 border-b border-white/10 flex gap-7">
@@ -730,69 +333,26 @@ export default function WalletComponent() {
 
             <div className="p-4">
                 {loading ? (
-                    <div className="flex justify-center items-center py-20">
-                        <div className="text-gray-400 text-center">
-                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4"></div>
-                            <p>데이터를 불러오는 중...</p>
-                        </div>
-                    </div>
+                    <div className="flex justify-center py-20"><div className="animate-spin h-12 w-12 border-b-2 border-indigo-500 rounded-full"></div></div>
                 ) : (
                     <>
                         {activeTab === "myAssets" && <MyAssets summary={summary} krwInput={krwInput} setKrwInput={setKrwInput} handleAddKrw={handleAddKrw} />}
-
                         {activeTab === "coins" && (
                             <MyCoins
-                                markets={markets}
-                                coinInput={coinInput}
-                                setCoinInput={setCoinInput}
-                                coinBalanceInput={coinBalanceInput}
-                                setCoinBalanceInput={setCoinBalanceInput}
-                                coinAvgPriceInput={coinAvgPriceInput}
-                                setCoinAvgPriceInput={setCoinAvgPriceInput}
-                                handleAddCoin={handleAddCoin}
-                                assets={assets}
-                                rawCoinAssets={rawCoinAssets}
-                                filteredAssets={filteredAssets}
-                                openDrawer={openDrawer}
-                                drawerOpen={drawerOpen}
-                                selectedMarket={selectedMarket}
-                                closeDrawer={closeDrawer}
-                                onSave={handleSaveCoinDetail}
-                                onDelete={handleDeleteCoin}
-                                editCoinBalance={editCoinBalance}
-                                setEditCoinBalance={setEditCoinBalance}
-                                editAvgBuyPrice={editAvgBuyPrice}
-                                setEditAvgBuyPrice={setEditAvgBuyPrice}
-                                tickers={tickers}
+                                assets={assets} filteredAssets={filteredAssets} openDrawer={openDrawer}
+                                coinInput={coinInput} setCoinInput={setCoinInput} coinBalanceInput={coinBalanceInput} setCoinBalanceInput={setCoinBalanceInput}
+                                coinAvgPriceInput={coinAvgPriceInput} setCoinAvgPriceInput={setCoinAvgPriceInput} handleAddCoin={handleAddCoin}
+                                drawerOpen={drawerOpen} closeDrawer={closeDrawer} onSave={handleSaveCoinDetail} onDelete={handleDeleteCoin}
+                                editCoinBalance={editCoinBalance} setEditCoinBalance={setEditCoinBalance} editAvgBuyPrice={editAvgBuyPrice} setEditAvgBuyPrice={setEditAvgBuyPrice}
+                                selectedMarket={selectedMarket} markets={markets}
                             />
                         )}
-
                         {activeTab === "portfolio" && <Portfolio portfolio={portfolio} markets={markets} />}
-
                         {activeTab === "favorites" && (
                             <Favorites
-                                markets={markets}
-                                favorites={favorites}
-                                tickers={tickers}
-                                onAddFavorite={handleAddFavorite}
-                                // Favorites가 기대하는 prop명(onDeleteSelected)으로 핸들러 전달
-                                onDeleteSelected={(ids) => handleDeleteSelectedFavorites(ids)}
-                                onDeleteAllFavorites={handleDeleteAllFavorites}
-                                onQuickAdd={(market) => {
-                                    setActiveTab("coins");
-                                    setCoinInput(market);
-                                }}
-                                onDeleteSingle={async (id) => {
-                                    try {
-                                        const ids = [id];
-                                        await deleteFavoriteCoin(ids, token);
-                                        await fetchFavorites();
-                                    } catch (e) {
-                                        console.error("관심코인 단건 삭제 실패", e);
-                                        alert("삭제 실패");
-                                    }
-                                }}
-                                loading={loading}
+                                favorites={favorites} tickers={tickers} markets={markets}
+                                onDeleteSelected={handleDeleteSelectedFavorites}
+                                onQuickAdd={(m) => { setActiveTab("coins"); setCoinInput(m); }}
                             />
                         )}
                     </>
@@ -804,7 +364,7 @@ export default function WalletComponent() {
 
 function Tab({ label, active, onClick }) {
     return (
-        <button onClick={onClick} className={`pb-3 text-base transition ${active ? "border-b-2 border-white font-semibold text-white" : "text-white/70 hover:text-white"}`}>
+        <button onClick={onClick} className={`pb-3 text-base transition ${active ? "border-b-2 border-white font-semibold" : "text-white/70 hover:text-white"}`}>
             {label}
         </button>
     );
