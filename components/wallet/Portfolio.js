@@ -18,6 +18,24 @@ const Doughnut = dynamic(
 export default function Portfolio({ portfolio = [], markets = [] }) {
     const list = Array.isArray(portfolio) ? portfolio : [];
 
+    const toNumber = (v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+        const s = String(v).replace(/[,₩\s]/g, "").trim();
+        if (!s) return undefined;
+        const n = Number(s);
+        return Number.isFinite(n) ? n : undefined;
+    };
+
+    const pickFirst = (obj, ...keys) => {
+        if (!obj) return undefined;
+        for (const k of keys) {
+            const val = obj?.[k];
+            if (val !== undefined && val !== null) return val;
+        }
+        return undefined;
+    };
+
     // chart.js 등록 (클라이언트 전용)
     const [chartReady, setChartReady] = useState(false);
     useEffect(() => {
@@ -77,7 +95,8 @@ export default function Portfolio({ portfolio = [], markets = [] }) {
         if (!obj) return "";
         if (obj.coinSymbol) return String(obj.coinSymbol).trim().toUpperCase();
 
-        const cand = String(obj.tradingPair ?? obj.market ?? obj.marketName ?? obj.code ?? obj.asset ?? "").trim();
+        // 백엔드 PortfolioItem은 asset에 심볼(BTC)만 내려줌
+        const cand = String(obj.asset ?? obj.tradingPair ?? obj.market ?? obj.marketName ?? obj.code ?? "").trim();
         if (!cand) return "";
         if (cand.includes("-")) return cand.split("-")[1].toUpperCase();
         if (cand.includes("/")) return cand.split("/")[0].toUpperCase();
@@ -105,6 +124,7 @@ export default function Portfolio({ portfolio = [], markets = [] }) {
         }
 
         // 2) markets map lookup (여러 변형 시도)
+        // 포트폴리오 항목은 대부분 asset=BTC 형태라 rawKey가 비어있는 경우가 많음
         const rawKey = String(obj.market ?? obj.tradingPair ?? obj.marketName ?? obj.code ?? "").trim();
         if (rawKey) {
             const variants = [
@@ -153,16 +173,25 @@ export default function Portfolio({ portfolio = [], markets = [] }) {
         const kr = getKoreanName(obj);
 
         if (kr && /\([A-Za-z0-9]+\)$/.test(kr)) return kr;
-        if (kr) return symbol ? `${kr} (${symbol})` : kr;
+        if (kr) return symbol ? `${kr}(${symbol})` : kr;
+
+        // markets가 있고 심볼만 있는 경우에도 nameBySymbol에서 못 찾으면 심볼 그대로
         if (symbol) return symbol;
-        return String(obj.tradingPair ?? obj.market ?? obj.name ?? "Unknown");
+        return String(obj.asset ?? obj.tradingPair ?? obj.market ?? obj.name ?? "Unknown");
     };
 
-    const { labels, dataValues, total } = useMemo(() => {
+    const { labels, dataValues, total, normalizedRatios } = useMemo(() => {
         const lbls = list.map((p) => formatLabel(p));
-        const vals = list.map((p) => Number(p.valuation ?? p.value ?? 0));
+        const vals = list.map((p) => {
+            const obj = unwrap(p) ?? p ?? {};
+            // 백엔드: valuation
+            // 프론트/기타: value, evalAmount 등
+            const v = toNumber(pickFirst(obj, "valuation", "value", "evalAmount", "eval_amount", "amount"));
+            return v ?? 0;
+        });
         const tot = vals.reduce((s, v) => s + v, 0);
-        return { labels: lbls, dataValues: vals, total: tot };
+        const ratios = vals.map((v) => (tot > 0 ? (v / tot) * 100 : 0));
+        return { labels: lbls, dataValues: vals, total: tot, normalizedRatios: ratios };
     }, [list, nameByKey, nameBySymbol]);
 
     if (list.length === 0 || total === 0) {
@@ -242,7 +271,26 @@ export default function Portfolio({ portfolio = [], markets = [] }) {
                                 <span className="font-medium">{formatLabel(p)}</span>
                             </div>
                             <div className="tabular-nums text-white/80">
-                                {((Number(p.valuation ?? p.value ?? 0) / total) * 100).toFixed(1)}%
+                                {(() => {
+                                    const obj = unwrap(p) ?? p ?? {};
+                                    const backendRatio = toNumber(pickFirst(obj, "ratio", "rate", "percent", "percentage"));
+                                    const normalized = normalizedRatios?.[idx];
+
+                                    // 백엔드 ratio는 totalAssets 기준으로 계산되므로,
+                                    // 프론트에서 차트/리스트를 valuation 합계 기준으로 그릴 때 오차가 커질 수 있음.
+                                    // backendRatio가 유효하고 normalized와 큰 차이가 없으면 backendRatio를 사용하고,
+                                    // 아니면 normalized(valuation 합계 기준)로 표시한다.
+                                    if (backendRatio !== undefined && Number.isFinite(backendRatio) && backendRatio > 0) {
+                                        if (normalized == null || !Number.isFinite(normalized)) return `${backendRatio.toFixed(1)}%`;
+                                        const diff = Math.abs(backendRatio - normalized);
+                                        if (diff <= 10) return `${backendRatio.toFixed(1)}%`;
+                                    }
+
+                                    if (normalized != null && Number.isFinite(normalized)) return `${normalized.toFixed(1)}%`;
+
+                                    const val = toNumber(pickFirst(obj, "valuation", "value", "evalAmount", "eval_amount", "amount")) ?? 0;
+                                    return `${(total ? (val / total) * 100 : 0).toFixed(1)}%`;
+                                })()}
                             </div>
                         </div>
                     ))}

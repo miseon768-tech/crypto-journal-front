@@ -1,8 +1,15 @@
 import axios from "axios";
 import { getStoredToken } from "./member";
 
-// ✅ 백엔드 경로에 맞춰서 수정!
-const API_BASE = process.env.NEXT_PUBLIC_KRW_API_BASE || "http://3.36.109.46.nip.io:8080/api/assets";
+// ✅ 환경변수 우선순위:
+// 1) NEXT_PUBLIC_KRW_API_BASE (완전한 assets API 주소를 직접 지정)
+// 2) NEXT_PUBLIC_BACKEND_URL (백엔드 호스트) + /api/assets
+// 3) localhost 기본값
+const BACKEND_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
+const API_BASE = (
+    process.env.NEXT_PUBLIC_KRW_API_BASE ||
+    `${BACKEND_BASE}/api/assets`
+).replace(/\/$/, "");
 
 /**
  * 공통 요청 함수

@@ -34,7 +34,8 @@ export default function Dashboard() {
                 const data = await getAllMarkets(router); // router 전달!
                 console.log("마켓 전체 응답:", data);
 
-                setTradingPairs(data?.trading_pairs || []);
+                // 백엔드/환경에 따라 tradingPairs 또는 trading_pairs로 올 수 있어 둘 다 지원
+                setTradingPairs(data?.tradingPairs || data?.trading_pairs || []);
             } catch (err) {
                 console.error("Failed to fetch trading pairs:", err);
             }

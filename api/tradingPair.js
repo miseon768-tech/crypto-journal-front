@@ -1,8 +1,11 @@
 import axios from "axios";
-import { getStoredToken } from "./member";
 
-const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE || "http://3.36.109.46.nip.io:8080/api/market";
+// ✅ 환경변수 우선순위:
+// 1) NEXT_PUBLIC_API_BASE (완전한 market API 주소)
+// 2) NEXT_PUBLIC_BACKEND_URL + /api/market
+// 3) localhost 기본값
+const BACKEND_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || `${BACKEND_BASE}/api/market`).replace(/\/$/, "");
 
 // Robust JWT 유효성 검사 함수
 function resolveToken(token) {

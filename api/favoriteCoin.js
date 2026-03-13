@@ -137,35 +137,18 @@ export const addFavoriteCoin = async (coinInput, token) => {
 
     marketStr = marketStr.trim().toUpperCase();
 
-    // 최초 plain text 시도
-    let headers, res;
+    // 백엔드 스펙: JSON body { coinInput: "KRW-BTC" }
+    let res;
     try {
-        headers = authHeader(t, "text/plain");
         res = await fetch(API_BASE, {
             method: "POST",
-            headers,
-            body: marketStr,
+            headers: authHeader(t, "application/json"),
+            body: JSON.stringify({ coinInput: marketStr }),
         });
     } catch (e) {
         throw new Error("API 호출 실패: " + e.message);
     }
 
-    if (res.status === 415 || res.status === 400) {
-        // JSON 방식으로 fallback
-        const res2 = await fetch(API_BASE, {
-            method: "POST",
-            headers: authHeader(t, "application/json"),
-            body: JSON.stringify({ market: marketStr }),
-        });
-        const parsed2 = await parseResponseBody(res2);
-        if (!res2.ok) {
-            const err = new Error(`관심 코인 추가 실패 (status: ${res2.status})${parsed2 ? " - " + JSON.stringify(parsed2) : ""}`);
-            err.status = res2.status;
-            err.body = parsed2;
-            throw err;
-        }
-        return parsed2;
-    }
 
     const body = await parseResponseBody(res);
     if (!res.ok) {

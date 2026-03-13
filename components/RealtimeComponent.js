@@ -36,25 +36,29 @@ export default function RealtimeComponent({trading_pairs = []}) {
         "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
     ];
 
-    const tradingPairMap = Array.isArray(trading_pairs)
-        ? trading_pairs.reduce((acc, tp) => {
-            acc[tp.market] = tp;
+    const tradingPairMap = useMemo(() => {
+        if (!Array.isArray(trading_pairs)) return {};
+        return trading_pairs.reduce((acc, tp) => {
+            if (!tp || typeof tp !== "object") return acc;
+            const marketKey = String(tp.market ?? tp.code ?? "").trim();
+            if (!marketKey) return acc;
+            acc[marketKey.toUpperCase()] = tp;
             return acc;
-        }, {})
-        : {};
+        }, {});
+    }, [trading_pairs]);
 
     const normalizeToMarketKey = (codeOrMarket) => {
         if (!codeOrMarket) return "";
-        const s = String(codeOrMarket);
-        if (s.includes("-")) return s;
+        const s = String(codeOrMarket).trim();
+        if (s.includes("-")) return s.toUpperCase();
 
         const sym = s.toUpperCase();
         const pairs = Array.isArray(trading_pairs) ? trading_pairs : [];
 
-        const krw = pairs.find((tp) => tp.market.toUpperCase() === `KRW-${sym}`);
+        const krw = pairs.find((tp) => String(tp?.market ?? "").toUpperCase() === `KRW-${sym}`);
         if (krw) return krw.market;
 
-        const any = pairs.find((tp) => tp.market.split("-")[1]?.toUpperCase() === sym);
+        const any = pairs.find((tp) => String(tp?.market ?? "").split("-")[1]?.toUpperCase() === sym);
         if (any) return any.market;
 
         return `KRW-${sym}`;
@@ -63,10 +67,12 @@ export default function RealtimeComponent({trading_pairs = []}) {
     const displaySymbol = (codeOrMarket) => {
         if (!codeOrMarket) return "";
         const marketKey = normalizeToMarketKey(codeOrMarket);
-        const tp = tradingPairMap[marketKey];
+        const tp = tradingPairMap[String(marketKey).toUpperCase()];
         const pureSymbol = marketKey.includes("-") ? marketKey.split("-")[1] : marketKey;
         if (!tp) return pureSymbol;
-        return `${tp.korean_name}(${pureSymbol})`;
+        const ko = tp.korean_name ?? tp.koreanName ?? tp.korean ?? tp.name;
+        const label = (ko && String(ko).trim()) ? String(ko).trim() : pureSymbol;
+        return `${label}(${pureSymbol})`;
     };
 
     const getChoseongFromKoreanName = (koreanName) => {
@@ -94,14 +100,24 @@ export default function RealtimeComponent({trading_pairs = []}) {
         if (!choseong) return true;
 
         const marketKey = normalizeToMarketKey(codeOrMarket);
-        const tp = tradingPairMap[marketKey];
-        if (!tp?.korean_name) return false;
+        const tp = tradingPairMap[String(marketKey).toUpperCase()];
+        const ko = tp?.korean_name ?? tp?.koreanName ?? tp?.korean ?? tp?.name;
+        if (!ko) return false;
 
-        const ch = getChoseongFromKoreanName(tp.korean_name);
+        const ch = getChoseongFromKoreanName(ko);
         const collapsed = collapseDoubleChoseong(ch);
 
         return collapsed === choseong;
     };
+
+    // 개발 중 진단: trading_pairs가 비어있으면 이름이 안 뜨는 게 정상이라, 원인 확인용 로그
+    useEffect(() => {
+        if (process.env.NODE_ENV === "production") return;
+        // eslint-disable-next-line no-console
+        console.debug("[Realtime] trading_pairs size:", Array.isArray(trading_pairs) ? trading_pairs.length : "not-array");
+        // eslint-disable-next-line no-console
+        console.debug("[Realtime] tradingPairMap keys sample:", Object.keys(tradingPairMap || {}).slice(0, 5));
+    }, [trading_pairs, tradingPairMap]);
 
     const normalizeKeysToCamel = (obj) => {
         if (!obj || typeof obj !== "object" || Array.isArray(obj)) return obj;
@@ -171,7 +187,15 @@ export default function RealtimeComponent({trading_pairs = []}) {
                 };
 
                 subscribeSafe("/topic/trade", (data) => {
-                    const marketKey = normalizeToMarketKey(data.market);
+                    // trade payload는 환경/매퍼에 따라 market 또는 code로 올 수 있음
+                    const rawMarket = data.market ?? data.code ?? data.symbol;
+                    const marketKey = normalizeToMarketKey(rawMarket);
+
+                    // 개발 중 필드 확인용 (프로덕션에선 노이즈 방지)
+                    if (process.env.NODE_ENV !== "production" && (!rawMarket || !marketKey)) {
+                        // eslint-disable-next-line no-console
+                        console.log("[TRADE payload]", data);
+                    }
                     const trade = {symbol: marketKey, price: data.tradePrice, quantity: data.tradeVolume};
                     setTrades((prev) => [trade, ...prev].slice(0, 50)); // ✅ 50개까지 누적
                 });

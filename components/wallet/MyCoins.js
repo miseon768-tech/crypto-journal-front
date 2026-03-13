@@ -82,6 +82,14 @@ export default function MyCoins({
         return String(raw).trim().toUpperCase();
     };
 
+    const getTickerPrice = (marketKey) => {
+        if (!marketKey) return undefined;
+        const raw = tickers?.[marketKey] ?? tickers?.[marketKey.replace(/\s/g, "")];
+        // WalletComponent는 { price, changeRate } 형태로 넣고, 다른 화면에서는 숫자로 넣을 수도 있어 둘 다 지원
+        if (raw && typeof raw === "object") return toNumber(raw.price ?? raw.tradePrice ?? raw.value);
+        return toNumber(raw);
+    };
+
     // 코인 객체에서 평가금액을 얻어오는 유틸 (우선순위: 직접 필드 -> tickers 계산 -> buy + profit 폴백)
     const getEvalAmount = (coin) => {
         // 1) 서버에서 이미 계산된 값 우선
@@ -101,7 +109,7 @@ export default function MyCoins({
 
         // 2) tickers 기반으로 계산 (현재가 * 수량)
         const marketKey = normalizeMarketKey(pickFirst(coin, "market", "marketName", "market_name"));
-        const tickerPrice = toNumber(tickers?.[marketKey]) ?? toNumber(tickers?.[marketKey.replace(/\s/g, "")]);
+        const tickerPrice = getTickerPrice(marketKey);
         const amount = toNumber(pickFirst(coin, "amount", "coinBalance", "coin_balance")) ?? toNumber(coin?.amount);
         if (tickerPrice !== undefined && amount !== undefined) {
             return Math.round(amount * tickerPrice);
@@ -121,24 +129,36 @@ export default function MyCoins({
         if (direct !== undefined) return Math.round(direct);
 
         const marketKey = normalizeMarketKey(pickFirst(coin, "market", "marketName", "market_name"));
-        const price = toNumber(tickers?.[marketKey]) ?? toNumber(tickers?.[marketKey.replace(/\s/g, "")]);
+        const price = getTickerPrice(marketKey);
         const amount = toNumber(pickFirst(coin, "amount", "coinBalance", "coin_balance")) ?? toNumber(coin?.amount);
         const avg = toNumber(pickFirst(coin, "avgPrice", "avg_price", "avgBuyPrice", "avg_buy_price")) ?? toNumber(coin?.avgPrice);
         if (price !== undefined && amount !== undefined && avg !== undefined) {
             return Math.round(amount * (price - avg));
         }
-        return 0;
+        // ticker가 아직 없으면 0으로 강제 표시하지 않고(오해 방지) 계산 불가 상태로 둔다.
+        return undefined;
     };
 
     // profit rate 계산: 우선 필드 -> ticker 기반 계산 -> 0
     const getProfitRate = (coin) => {
         const direct = Number(coin?.profitRate ?? coin?.profit_rate);
-        if (!Number.isNaN(direct) && direct !== 0) return direct;
+        if (!Number.isNaN(direct) && Number.isFinite(direct) && direct !== 0) return direct;
         const buy = toNumber(pickFirst(coin, "buyAmount", "buy_amount", "buyAmountKRW", "buy_amount_krw")) ?? Math.round((toNumber(pickFirst(coin, "amount", "coinBalance")) || 0) * (toNumber(pickFirst(coin, "avgPrice", "avg_price")) || 0));
         const profit = getProfit(coin);
-        if (buy) return (profit / buy) * 100;
-        return 0;
+        if (!buy || profit === undefined || profit === null) return undefined;
+        return (profit / buy) * 100;
     };
+
+    // 개발 중 진단: ticker가 들어오지 않는 경우를 빠르게 확인
+    useEffect(() => {
+        if (process.env.NODE_ENV === "production") return;
+        if (!Array.isArray(filteredAssets) || filteredAssets.length === 0) return;
+        const sample = filteredAssets[0];
+        const mk = normalizeMarketKey(pickFirst(sample, "market", "marketName", "market_name"));
+        const price = getTickerPrice(mk);
+        // eslint-disable-next-line no-console
+        console.debug("[MyCoins] ticker debug", { market: mk, tickerRaw: tickers?.[mk], price, tickersKeys: Object.keys(tickers || {}).slice(0, 5) });
+    }, [filteredAssets, tickers]);
 
     // buyAmount 안전 추출 (표시용)
     const getBuyAmount = (coin) => {
@@ -322,8 +342,8 @@ function MarketCombobox({
         const results = base
             .map((m) => {
                 const market = normalize(m.market);
-                const kor = normalize(m.korean_name);
-                const eng = normalize(m.english_name);
+                const kor = normalize(m.korean_name ?? m.koreanName ?? m.korean ?? m.name ?? "");
+                const eng = normalize(m.english_name ?? m.englishName ?? m.english ?? "");
                 const symbol = normalize(toSymbol(m.market));
                 let score = 0;
                 if (isSymbolOnly && symbol === query) score += 950;
@@ -342,7 +362,7 @@ function MarketCombobox({
     }, [markets, q, limit]);
 
     const candidates = scored.map((x) => x.m);
-    const label = (m) => `${m.korean_name || "알수없음"}(${toSymbol(m.market)})`;
+    const label = (m) => `${m.korean_name ?? m.koreanName ?? m.korean ?? m.name ?? "알수없음"}(${toSymbol(m.market)})`;
     const displayValue = open ? q : selected ? label(selected) : value || "";
 
     const pick = (m) => {

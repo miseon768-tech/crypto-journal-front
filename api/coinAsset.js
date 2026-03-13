@@ -37,7 +37,14 @@ export const getAllCoinAssets = async (token = getStoredToken()) => {
     }
 
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
+
+    // 백엔드 응답 형태가 환경에 따라 달라질 수 있음
+    // - 과거: [ { ...CoinAsset } ]
+    // - 현재(Spring): { success: true, coinAssets: [ ... ] }
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.coinAssets)) return data.coinAssets;
+
+    return [];
 };
 
 // =====================================================

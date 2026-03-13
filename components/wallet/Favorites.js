@@ -151,9 +151,11 @@ export default function Favorites({
         return Number.isFinite(n) ? n : null;
     };
 
+    // 거래대금: '백만' 단위로 고정 표기 (예: 156,212백만)
+    // n은 원화 금액(원) 기준.
     const formatTradingValue = (n) => {
         const num = Number(n);
-        if (!Number.isFinite(num) || num === 0) return "-";
+        if (!Number.isFinite(num) || num <= 0) return "-";
         const millions = Math.round(num / 1_000_000);
         return `${millions.toLocaleString()}백만`;
     };
@@ -257,9 +259,16 @@ export default function Favorites({
         else {
             if (marketKeyFromPayload.startsWith("KRW") || marketKeyFromPayload.endsWith("KRW")) baseCurrency = "KRW";
         }
-        const isKRWMarket = baseCurrency === "KRW";
-        let accPrice24h = null;
-        if (isKRWMarket) {
+        // 거래대금 후보:
+        // - KRW 마켓이든 아니든, upbit ticker에는 acc_trade_price24h(24h 누적 거래대금)가 내려온다.
+        // - baseCurrency 판별이 틀려도 거래대금 표시는 되어야 하므로 조건으로 막지 않는다.
+        // 1) WalletComponent가 가공해서 넣어준 필드(accTradePrice24h/accTradePrice)
+        // 2) raw payload(upbit)에서 추출
+        let accPrice24h = asNumber(t.accTradePrice24h ?? t.acc_trade_price24h ?? t.acc_trade_price_24h);
+        if (accPrice24h == null || accPrice24h <= 0) {
+            accPrice24h = asNumber(t.accTradePrice ?? t.acc_trade_price);
+        }
+        if (accPrice24h == null || accPrice24h <= 0) {
             accPrice24h = getAccPrice24h(t);
         }
         return {
@@ -431,7 +440,20 @@ export default function Favorites({
                     const price = ticker?.price;
                     const change = ticker?.change; // stored as prev - price
                     const changeRate = ticker?.changeRate;
-                    const accPrice24h = ticker?.accTradePrice24h;
+                    // 24h 누적 거래대금이 비어있으면(또는 0이면) 당일 누적(accTradePrice)로 폴백
+                    const accPrice24h = (ticker?.accTradePrice24h != null && Number(ticker.accTradePrice24h) > 0)
+                        ? Number(ticker.accTradePrice24h)
+                        : ((ticker?.accTradePrice != null && Number(ticker.accTradePrice) > 0) ? Number(ticker.accTradePrice) : null);
+
+                    // dev only: 거래대금이 계속 '-'로 보일 때 원인 파악용
+                    if (process.env.NODE_ENV !== "production" && accPrice24h == null) {
+                        // eslint-disable-next-line no-console
+                        console.debug("[Favorites] no tradingValue", {
+                            market: f.market,
+                            ticker,
+                            rawTicker: tickers?.[normalizeMarketKey(f.market)],
+                        });
+                    }
                     const displayChange = change != null ? -change : null;
                     const displayRate = changeRate != null ? -changeRate : null;
                     const changeColor = displayChange == null ? "text-white/60" : displayChange >= 0 ? "text-red-400" : "text-blue-400";
