@@ -34,6 +34,10 @@ export const getPosts = (token) => handleFetch(API_BASE, { headers: makeHeaders(
 export const getPostById = (postId, token) =>
     handleFetch(`${API_BASE}/${postId}`, { headers: makeHeaders(token) }, "게시물 조회 실패");
 
+// 조회수 증가
+export const increaseViewCount = (postId, token) =>
+    handleFetch(`${API_BASE}/${postId}/view`, { method: 'POST', headers: makeHeaders(token) }, '조회수 증가 실패');
+
 // 내가 쓴 글
 export const getMyPosts = (token) =>
     handleFetch(`${API_BASE}/me`, { headers: makeHeaders(token) }, "내 글 조회 실패");

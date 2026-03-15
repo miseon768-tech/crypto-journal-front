@@ -13,6 +13,7 @@ import {
     getDrafts,
     updatePost,
     getPostLikeCount,
+    increaseViewCount,
 } from "../api/post";
 
 import {
@@ -421,6 +422,19 @@ export default function Community() {
         const token = getToken();
         if (token) setToken(token);
         try {
+            // 조회수 증가 (실패해도 상세 조회는 계속)
+            try {
+                await increaseViewCount(postId, token);
+                // 낙관적 UI 업데이트: 목록/상세에서 즉시 +1
+                setPosts((prev) => prev.map((p) => {
+                    if (p.id !== postId) return p;
+                    const current = typeof p.viewCount === 'number' ? p.viewCount : 0;
+                    return { ...p, viewCount: current + 1 };
+                }));
+            } catch (e) {
+                console.warn('조회수 증가 실패(무시하고 진행)', e);
+            }
+
             const rawPost = await getPostById(postId, token);
             const post = normalizePost(rawPost);
             if (!post.id) return;
@@ -626,8 +640,8 @@ export default function Community() {
                 </div>
 
 
-                {/* 목록 */}
-                <div className="bg-white/5 border border-white/10 rounded-xl overflow-visible">
+                {/* 목록 (래퍼 박스 제거: 각 아이템만 border로 구분) */}
+                <div>
                     {posts.map((post, idx) => (
                         <div
                             key={post.id || idx}
