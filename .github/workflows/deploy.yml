@@ -1,0 +1,43 @@
+name: Frontend Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and Push Frontend Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # 현재 리포지토리가 백엔드이므로 경로를 . 으로 설정
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/crypto-journal-front:latest .
+          docker push $ECR_REGISTRY/crypto-journal-front:latest
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/ # docker-compose.yml이 있는 위치
+            aws ecr get-login-password --region ap-northeast-2 | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            sudo docker-compose pull bitcoin-frontend
+            sudo docker-compose up -d bitcoin-frontend
