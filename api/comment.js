@@ -2,6 +2,7 @@ import { getStoredToken } from './member';
 
 const API_HOST = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://3.36.109.46.nip.io:8080').replace(/\/$/, '');
 const API_BASE = `${API_HOST}/api/comment`;
+const API_LIKE_BASE = `${API_HOST}/api/comment/like`;
 
 const makeHeaders = (token) => {
     const stored = getStoredToken();
@@ -79,4 +80,24 @@ export const getCommentsByUser = async (token) => {
         headers: makeHeaders(token),
     });
     return handleResponse(res, '사용자 댓글 조회 실패');
+};
+
+// 댓글 좋아요
+export const likeComment = async (commentId, token) => {
+    if (!commentId) throw new Error('commentId가 필요합니다.');
+    const res = await fetch(`${API_LIKE_BASE}/${commentId}`, {
+        method: 'POST',
+        headers: makeHeaders(token),
+    });
+    return handleResponse(res, '댓글 좋아요 실패');
+};
+
+// 댓글 좋아요 취소
+export const unlikeComment = async (commentId, token) => {
+    if (!commentId) throw new Error('commentId가 필요합니다.');
+    const res = await fetch(`${API_LIKE_BASE}/${commentId}`, {
+        method: 'DELETE',
+        headers: makeHeaders(token),
+    });
+    return handleResponse(res, '댓글 좋아요 취소 실패');
 };

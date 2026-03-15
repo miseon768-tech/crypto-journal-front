@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     getPosts,
     getPostById,
@@ -21,6 +21,8 @@ import {
     deleteComment,
     getCommentsByPost,
     getCommentsByUser,
+    likeComment,
+    unlikeComment,
 } from "../api/comment";
 
 import { useToken } from "../stores/account-store";
@@ -36,9 +38,19 @@ export default function Community() {
     const [comments, setComments] = useState([]);
     const [commentText, setCommentText] = useState("");
 
+    // comment like UI state (backend doesn't provide whether current user liked each comment)
+    const [likedCommentIds, setLikedCommentIds] = useState(() => new Set());
+
     // comment edit/delete UI state
     const [editingCommentId, setEditingCommentId] = useState(null);
     const [editingCommentText, setEditingCommentText] = useState("");
+
+    // Blind-style menus
+    const [postMenuOpen, setPostMenuOpen] = useState(false);
+    const [commentMenuOpenId, setCommentMenuOpenId] = useState(null);
+    const postMenuRef = useRef(null);
+    // NOTE: comment menus are rendered in a list; a single ref would only point to the last item.
+    // We'll rely on data attributes for outside-click detection instead.
 
     const [title, setTitle] = useState("");
     const [content, setContent] = useState("");
@@ -68,7 +80,30 @@ export default function Community() {
             title: p.title ?? p.subject ?? "",
             content: p.content ?? p.body ?? "",
             createdAt: p.createdAt ?? p.created_at ?? null,
+            authorId: p.authorId ?? p.author_id ?? p.memberId ?? p.member_id ?? p.member?.id ?? null,
+            authorNickname: p.authorNickname ?? p.author_nickname ?? p.memberNickname ?? p.member_nickname ?? p.member?.nickname ?? null,
+            viewCount: p.viewCount ?? p.view_count ?? null,
+            likeCount: p.likeCount ?? p.like_count ?? p.likes ?? p.likeCnt ?? null,
+            commentCount: p.commentCount ?? p.comment_count ?? p.comments ?? p.commentCnt ?? null,
         };
+    };
+
+    const formatKoreanDateTime = (value) => {
+        if (!value) return "";
+        const d = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(d.getTime())) return "";
+        return d.toLocaleString('ko-KR');
+    };
+
+    const formatRelativeDays = (value) => {
+        // Blind 스타일처럼: "작성일 2일" 정도로 간단히
+        if (!value) return "";
+        const d = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(d.getTime())) return "";
+        const diffMs = Date.now() - d.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays <= 0) return "오늘";
+        return `${diffDays}일`;
     };
 
     const normalizeComment = (raw) => {
@@ -81,6 +116,8 @@ export default function Community() {
             createdAt: c.createdAt ?? c.created_at ?? null,
             authorId: c.authorId ?? c.author_id ?? null,
             authorNickname: c.authorNickname ?? c.author_nickname ?? null,
+            likeCount: c.likeCount ?? c.like_count ?? c.likes ?? c.likeCnt ?? null,
+            replyCount: c.replyCount ?? c.reply_count ?? c.replies ?? c.replyCnt ?? null,
         };
     };
 
@@ -121,6 +158,8 @@ export default function Community() {
         }
         const list = extractCommentsArray(rawComments);
         setComments(list.map(normalizeComment));
+        // NOTE: 서버에서 내가 좋아요한 댓글 목록/플래그를 내려주지 않아
+        // likedCommentIds는 사용자 상호작용 기준으로만 유지합니다.
     };
 
 
@@ -214,6 +253,34 @@ export default function Community() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // close menus on outside click / ESC
+    useEffect(() => {
+        const onDocClick = (e) => {
+            const t = e.target;
+            if (postMenuOpen && postMenuRef.current && !postMenuRef.current.contains(t)) {
+                setPostMenuOpen(false);
+            }
+            if (commentMenuOpenId) {
+                // If click is outside any comment-menu container, close it.
+                // Using closest() avoids per-item refs and works for the first item too.
+                const insideAnyMenu = t && typeof t.closest === 'function' && t.closest('[data-comment-menu="true"]');
+                if (!insideAnyMenu) setCommentMenuOpenId(null);
+            }
+        };
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                setPostMenuOpen(false);
+                setCommentMenuOpenId(null);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', onDocClick);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [postMenuOpen, commentMenuOpenId]);
+
     // =======================
     // 글 작성 / 수정 / 삭제
     // =======================
@@ -295,6 +362,13 @@ export default function Community() {
 
             setSelectedPost(post);
 
+            // reset menus
+            setPostMenuOpen(false);
+            setCommentMenuOpenId(null);
+
+            // reset comment like UI state per post (optional: keep global if you want)
+            setLikedCommentIds(new Set());
+
             // reset comment edit state when opening a post
             setEditingCommentId(null);
             setEditingCommentText("");
@@ -302,6 +376,49 @@ export default function Community() {
 
             setMode("detail");
         } catch (e) { console.error("상세 글 불러오기 실패", e); alert(e?.message || '상세 불러오기 실패'); }
+    };
+
+    const toggleCommentLike = async (commentId) => {
+        const token = getToken();
+        if (!token) return alert('댓글 좋아요는 로그인 필요');
+        if (!commentId) return;
+
+        const wasLiked = likedCommentIds.has(commentId);
+
+        // optimistic UI update
+        setLikedCommentIds((prev) => {
+            const next = new Set(prev);
+            if (wasLiked) next.delete(commentId);
+            else next.add(commentId);
+            return next;
+        });
+
+        // optimistic count update (if likeCount exists)
+        setComments((prev) => prev.map((c) => {
+            if (c.id !== commentId) return c;
+            const current = typeof c.likeCount === 'number' ? c.likeCount : 0;
+            return { ...c, likeCount: Math.max(0, wasLiked ? current - 1 : current + 1) };
+        }));
+
+        try {
+            if (wasLiked) await unlikeComment(commentId, token);
+            else await likeComment(commentId, token);
+        } catch (e) {
+            console.error('댓글 좋아요 토글 실패', e);
+            // rollback
+            setLikedCommentIds((prev) => {
+                const next = new Set(prev);
+                if (wasLiked) next.add(commentId);
+                else next.delete(commentId);
+                return next;
+            });
+            setComments((prev) => prev.map((c) => {
+                if (c.id !== commentId) return c;
+                const current = typeof c.likeCount === 'number' ? c.likeCount : 0;
+                return { ...c, likeCount: Math.max(0, wasLiked ? current + 1 : current - 1) };
+            }));
+            alert(e?.message || '댓글 좋아요 처리 실패');
+        }
     };
 
     const handleAddComment = async () => {
@@ -324,6 +441,7 @@ export default function Community() {
     const handleCancelEditComment = () => {
         setEditingCommentId(null);
         setEditingCommentText("");
+        setCommentMenuOpenId(null);
     };
 
     const handleUpdateComment = async () => {
@@ -352,6 +470,7 @@ export default function Community() {
             await deleteComment(commentId, token);
             await refetchComments(selectedPost.id, token);
             if (editingCommentId === commentId) handleCancelEditComment();
+            setCommentMenuOpenId(null);
         } catch (e) {
             console.error('댓글 삭제 실패', e);
             alert(e?.message || '댓글 삭제 실패');
@@ -391,14 +510,19 @@ export default function Community() {
             const handleLogout = () => { try { localStorage.removeItem('token'); } catch (e) {} try { setToken(null); } catch (e) {} alert('로그아웃 처리했습니다. 로그인 해주세요.'); };
 
             return (
-                <div className="p-6 text-white max-w-3xl mx-auto">
+                <div className="p-0 text-white max-w-3xl mx-auto">
                     <div className="mb-6">
-                        <h1 className="text-3xl font-bold">커뮤니티</h1>
-                        <p className="text-sm text-gray-300 mt-2">커뮤니티 게시물이 없습니다. 글을 작성해보세요.</p>
+                        <h1 className="text-2xl font-bold text-white">커뮤니티</h1>
+                        <p className="text-sm text-gray-300 mt-2">게시물이 없습니다. 글을 작성해보세요.</p>
                     </div>
 
                     <div className="flex gap-2 mb-4">
-                        <button onClick={() => { setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); setMode("write"); }} className="px-4 py-2 bg-primary rounded ml-auto">글 작성</button>
+                        <button
+                            onClick={() => { setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); setMode("write"); }}
+                            className="px-3 py-2 bg-white/10 hover:bg-white/15 rounded text-sm ml-auto"
+                        >
+                            글 작성
+                        </button>
                     </div>
 
                     {showDebug && (
@@ -416,27 +540,87 @@ export default function Community() {
         }
 
         return (
-            <div className="p-6 text-white max-w-3xl mx-auto">
-                <div className="mb-4 flex gap-2 justify-end">
-                    <input
-                        value={searchKeyword}
-                        onChange={(e) => setSearchKeyword(e.target.value)}
-                        placeholder="검색어 입력"
-                        className="w-full max-w-xs px-3 py-2 rounded bg-gray-800"
-                    />
-                    <button onClick={() => fetchPosts("search", searchKeyword)} className="px-4 py-2 bg-primary rounded">검색</button>
+            <div className="p-0 text-white max-w-3xl mx-auto">
+                {/* Blind 스타일 헤더/검색 */}
+                <div className="mb-4">
+                    <div className="flex gap-2">
+                        <input
+                            value={searchKeyword}
+                            onChange={(e) => setSearchKeyword(e.target.value)}
+                            placeholder="관심있는 내용을 검색해보세요!"
+                            className="flex-1 px-3 py-2 rounded bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+                        />
+                        <button
+                            onClick={() => fetchPosts("search", searchKeyword)}
+                            className="px-3 py-2 bg-white/10 hover:bg-white/15 rounded text-sm"
+                        >
+                            검색
+                        </button>
+                    </div>
                 </div>
 
-                {posts.map((post) => (
-                    <div key={post.id} className="bg-white/10 p-4 rounded mb-3">
-                        <div className="flex justify-between cursor-pointer" onClick={() => openDetail(post.id)}>
-                            <span>{post.title}</span>
-                            <span className="text-sm text-gray-400">{post.createdAt ? new Date(post.createdAt).toLocaleString() : ""}</span>
+
+                {/* 목록 */}
+                <div className="bg-white/5 border border-white/10 rounded-xl overflow-visible">
+                    {posts.map((post, idx) => (
+                        <div
+                            key={post.id || idx}
+                            className={`px-4 py-4 ${idx !== 0 ? 'border-t border-white/10' : ''} hover:bg-white/5 cursor-pointer`}
+                            onClick={() => openDetail(post.id)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter') openDetail(post.id); }}
+                        >
+
+                            {/* 제목 */}
+                            <div className="mt-2 text-base font-semibold text-white leading-snug">
+                                {post.title}
+                            </div>
+
+                            {/* 메타: 작성자(현재는 닉네임 그대로), 작성일, 조회수 */}
+                            <div className="mt-2 text-xs text-gray-300 flex items-center gap-x-2">
+                                <span className="min-w-0 truncate">{post.authorNickname ? post.authorNickname : (post.authorId ? `user:${post.authorId}` : '익명')}</span>
+                                <span className="opacity-60">·</span>
+                                <span>{formatRelativeDays(post.createdAt)}</span>
+                                {typeof post.viewCount === 'number' && (
+                                    <>
+                                        <span className="opacity-60">·</span>
+                                        <span>조회수 {post.viewCount}</span>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* 본문 프리뷰 */}
+                            <div className="mt-3 text-sm text-gray-200 line-clamp-2">
+                                {post.content}
+                            </div>
+
+                            {/* 하단 메타 (요청): 👁️ ❤️ 💬 */}
+                            <div className="mt-4 flex items-center gap-4 text-xs text-gray-400">
+                                <span className="inline-flex items-center gap-1">
+                                    <span aria-hidden="true">👁️</span>
+                                    <span className="tabular-nums">{typeof post.viewCount === 'number' ? post.viewCount : 0}</span>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    <span aria-hidden="true">❤️</span>
+                                    <span className="tabular-nums">{typeof post.likeCount === 'number' ? post.likeCount : 0}</span>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    <span aria-hidden="true">💬</span>
+                                    <span className="tabular-nums">{typeof post.commentCount === 'number' ? post.commentCount : 0}</span>
+                                </span>
+                            </div>
                         </div>
-                    </div>
-                ))}
-                <div className="flex gap-2 justify-end">
-                    <button onClick={() => { setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); setMode("write"); }} className="px-4 py-2 bg-primary rounded">글 작성</button>
+                    ))}
+                </div>
+
+                <div className="flex gap-2 justify-end mt-4">
+                    <button
+                        onClick={() => { setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); setMode("write"); }}
+                        className="px-3 py-2 bg-white/10 hover:bg-white/15 rounded text-sm"
+                    >
+                        글 작성
+                    </button>
                 </div>
             </div>
         );
@@ -497,110 +681,262 @@ export default function Community() {
     // =======================
     if (mode === "detail" && selectedPost) {
         return (
-            <div className="p-6 text-white max-w-3xl mx-auto">
-                {/* Back 버튼 추가: 상세 -> 목록 */}
-                <div className="mb-4 flex items-center">
+            <div className="p-0 pb-24 text-white max-w-3xl mx-auto">
+                {/* Back */}
+                <div className="mb-3 flex items-center">
                     <button
                         onClick={() => {
-                            // 목록으로 돌아가기, 선택된 포스트 초기화
                             setMode("list");
                             setIsEditing(false);
                             setSelectedPost(null);
                             setTitle("");
                             setContent("");
                         }}
-                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="px-3 py-2 bg-white/10 hover:bg-white/15 rounded text-sm"
                         aria-label="뒤로"
                     >
                         ← 뒤로
                     </button>
                 </div>
 
-                <div className="bg-white/10 p-6 rounded-xl mb-4">
-                    <h2 className="text-2xl font-bold mb-2">{selectedPost.title}</h2>
-                    <p className="whitespace-pre-wrap">{selectedPost.content}</p>
-                </div>
-                <div className="flex gap-2 mb-4 justify-end">
-                    <button
-                        onClick={() => {
-                            setTitle(selectedPost.title);
-                            setContent(selectedPost.content);
-                            setIsEditing(true); // <-- set editing flag so submit will update instead of create
-                            setMode("write");
-                        }}
-                        className="px-4 py-2 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                        수정
-                    </button>
-                    <button
-                        onClick={() => handleDelete(selectedPost.id)}
-                        className="px-4 py-2 bg-white/5 rounded transition-colors hover:bg-red-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                    >
-                        삭제
-                    </button>
-                </div>
-                <div>
-                    <h3 className="text-xl font-bold mb-2">댓글</h3>
-                    {comments.map((c) => (
-                        <div key={c.id || `${c.createdAt || ''}-${c.content?.slice(0, 10) || ''}`} className="bg-white/10 p-3 rounded mb-2">
-                            {editingCommentId === c.id ? (
-                                <div className="flex flex-col gap-2">
-                                    <input
-                                        value={editingCommentText}
-                                        onChange={(e) => setEditingCommentText(e.target.value)}
-                                        className="w-full px-3 py-2 rounded bg-gray-800"
-                                        placeholder="댓글 수정..."
-                                    />
-                                    <div className="flex gap-2 justify-end">
-                                        <button
-                                            onClick={handleUpdateComment}
-                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        >
-                                            수정 완료
-                                        </button>
-                                        <button
-                                            onClick={handleCancelEditComment}
-                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-gray-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-gray-500"
-                                        >
-                                            취소
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex-1">
-                                        <div className="text-xs text-gray-300 mb-1">
-                                            {c.authorNickname ? c.authorNickname : (c.authorId ? `user:${c.authorId}` : '')}
-                                            {c.createdAt ? ` · ${new Date(c.createdAt).toLocaleString()}` : ''}
-                                        </div>
-                                        <p className="whitespace-pre-wrap">{c.content}</p>
-                                    </div>
-                                    <div className="flex gap-2 shrink-0">
-                                        <button
-                                            onClick={() => handleStartEditComment(c)}
-                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        >
-                                            수정
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteComment(c.id)}
-                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-red-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                                        >
-                                            삭제
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
+                {/* Post */}
+                <div className="px-1">
+                    <div className="px-4 py-4">
+                        {/* 채널 라인 */}
+                        <div className="flex items-center justify-between text-sm mb-3">
+                            <button className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15">팔로우</button>
                         </div>
-                    ))}
-                    <div className="flex gap-2 mt-2">
-                        <input value={commentText} onChange={(e) => setCommentText(e.target.value)} className="flex-1 px-3 py-2 rounded bg-gray-800" placeholder="댓글 작성..."/>
-                        <button
-                            onClick={handleAddComment}
-                            className="px-4 py-2 bg-primary rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                            작성
-                        </button>
+
+                        <h2 className="text-xl md:text-2xl font-bold leading-snug text-white">
+                            {selectedPost.title}
+                        </h2>
+
+                        {/* 작성자 + 메타 (아이디 밑으로, 이모티콘 표기) */}
+                        <div className="mt-3 text-sm text-gray-300">
+                            <div className="flex items-center">
+                                <span className="font-medium">{selectedPost.authorNickname ? selectedPost.authorNickname : '비공개'}</span>
+                            </div>
+                            <div className="mt-2 flex items-center gap-4 text-xs text-gray-400">
+                                <span className="inline-flex items-center gap-1">
+                                    <span aria-hidden="true">🕒</span>
+                                    <span>{formatRelativeDays(selectedPost.createdAt) || '어제'}</span>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    <span aria-hidden="true">👁️</span>
+                                    <span className="tabular-nums">{typeof selectedPost.viewCount === 'number' ? selectedPost.viewCount : 0}</span>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    <span aria-hidden="true">💬</span>
+                                    <span className="tabular-nums">{typeof selectedPost.commentCount === 'number' ? selectedPost.commentCount : comments.length}</span>
+                                </span>
+
+                                {/* ⋯ 메뉴를 메타라인(🕒/👁️/💬) 우측 끝으로 이동 */}
+                                <div className="ml-auto relative" ref={postMenuRef}>
+                                    <button
+                                        type="button"
+                                        className="px-2 py-1 rounded hover:bg-white/10"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setPostMenuOpen((v) => !v);
+                                        }}
+                                        aria-label="게시글 메뉴"
+                                    >
+                                        ⋯
+                                    </button>
+                                    {postMenuOpen && (
+                                        <div className="absolute right-0 bottom-full mb-2 w-32 bg-[#0b0f19] border border-white/10 rounded-lg shadow-lg overflow-hidden z-10">
+                                            <button
+                                                type="button"
+                                                className="w-full text-left px-3 py-2 text-sm hover:bg-white/10"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setTitle(selectedPost.title);
+                                                    setContent(selectedPost.content);
+                                                    setIsEditing(true);
+                                                    setPostMenuOpen(false);
+                                                    setMode("write");
+                                                }}
+                                            >
+                                                수정
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 text-red-300"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setPostMenuOpen(false);
+                                                    handleDelete(selectedPost.id);
+                                                }}
+                                            >
+                                                삭제
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* divider */}
+                        <div className="mt-4 border-t border-white/10" />
+
+                        <div className="mt-4 text-sm text-gray-200 whitespace-pre-wrap">
+                            {selectedPost.content}
+                        </div>
+
+
+                        {/* 액션 */}
+                        <div className="mt-5 flex items-center gap-6 text-sm text-gray-300">
+                            <button
+                                type="button"
+                                className="inline-flex items-center gap-2 hover:text-white"
+                                onClick={(e) => { e.stopPropagation(); /* TODO: like toggle */ }}
+                                aria-label="좋아요"
+                            >
+                                <span aria-hidden="true">❤️ 좋아요</span>
+                            </button>
+                            <button
+                                type="button"
+                                className="inline-flex items-center gap-2 hover:text-white"
+                                onClick={(e) => { e.stopPropagation(); }}
+                                aria-label="댓글"
+                            >
+                                <span aria-hidden="true">💬</span>
+                                <span className="tabular-nums">{typeof selectedPost.commentCount === 'number' ? selectedPost.commentCount : comments.length}</span>
+                            </button>
+                            <button type="button" className="hover:text-white">공유하기</button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Comments */}
+                <div className="mt-6 px-1 border-t border-white/10">
+                    <div className="px-4 py-3 flex items-center justify-between">
+                        <div className="text-base font-semibold">댓글 {comments.length}</div>
+                        <div className="text-xs text-gray-400">추천순</div>
+                    </div>
+                    <div className="px-4 py-4">
+                        {/* 댓글 입력 (리스트와 동일한 가로폭: px-5 컨테이너 안에 배치) */}
+                        <div className="flex gap-2 mb-4">
+                            <input
+                                value={commentText}
+                                onChange={(e) => setCommentText(e.target.value)}
+                                className="flex-1 px-3 py-2 rounded bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+                                placeholder="댓글을 남겨주세요."
+                            />
+                            <button
+                                onClick={handleAddComment}
+                                className="px-3 py-2 bg-white/10 hover:bg-white/15 rounded text-sm shrink-0"
+                            >
+                                작성
+                            </button>
+                        </div>
+
+                        <div className="mt-2">
+                            {comments.map((c) => (
+                                <div
+                                    key={c.id || `${c.createdAt || ''}-${c.content?.slice(0, 10) || ''}`}
+                                    className="py-4 border-b border-white/10"
+                                >
+                                    {editingCommentId === c.id ? (
+                                        <div className="flex flex-col gap-2">
+                                            <input
+                                                value={editingCommentText}
+                                                onChange={(e) => setEditingCommentText(e.target.value)}
+                                                className="w-full px-3 py-2 rounded bg-gray-800"
+                                                placeholder="댓글 수정..."
+                                            />
+                                            <div className="flex gap-2 justify-end">
+                                                <button
+                                                    onClick={handleUpdateComment}
+                                                    className="px-3 py-1 bg-white/10 rounded hover:bg-white/15"
+                                                >
+                                                    수정 완료
+                                                </button>
+                                                <button
+                                                    onClick={handleCancelEditComment}
+                                                    className="px-3 py-1 bg-white/10 rounded hover:bg-white/15"
+                                                >
+                                                    취소
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex-1">
+                                                <div className="text-xs text-gray-300 mb-1 flex flex-wrap items-center gap-x-2">
+                                                    <span>{c.authorNickname ? c.authorNickname : (c.authorId ? `user:${c.authorId}` : '비공개')}</span>
+                                                </div>
+                                                <p className="whitespace-pre-wrap">{c.content}</p>
+
+                                                {/* Blind 스타일: 작성일/좋아요/대댓글/메뉴 */}
+                                                <div className="mt-2 flex items-center gap-3 text-xs text-gray-400">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        <span aria-hidden="true">🕒</span>
+                                                        <span>{formatRelativeDays(c.createdAt)}</span>
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            className="inline-flex items-center gap-1 hover:text-white"
+                                                            onClick={(e) => { e.stopPropagation(); toggleCommentLike(c.id); }}
+                                                            aria-label="댓글 좋아요"
+                                                        >
+                                                            <span aria-hidden="true">{likedCommentIds.has(c.id) ? '❤️' : '🤍'}</span>
+                                                            <span className="tabular-nums">{typeof c.likeCount === 'number' ? c.likeCount : 0}</span>
+                                                        </button>
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-1">
+                                                        <span aria-hidden="true">💬</span>
+                                                        <span className="tabular-nums">{typeof c.replyCount === 'number' ? c.replyCount : 0}</span>
+                                                    </span>
+
+                                                    {/* ⋯ 메뉴 */}
+                                                    <div className="ml-auto relative" data-comment-menu="true">
+                                                        <button
+                                                            type="button"
+                                                            className="px-2 py-1 rounded hover:bg-white/10"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setCommentMenuOpenId((cur) => (cur === c.id ? null : c.id));
+                                                            }}
+                                                            aria-label="댓글 메뉴"
+                                                        >
+                                                            ⋯
+                                                        </button>
+                                                        {commentMenuOpenId === c.id && (
+                                                            <div className="absolute right-0 bottom-full mb-2 w-32 bg-[#0b0f19] border border-white/10 rounded-lg shadow-lg overflow-hidden z-10">
+                                                                <button
+                                                                    type="button"
+                                                                    className="w-full text-left px-3 py-2 text-sm hover:bg-white/10"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleStartEditComment(c);
+                                                                    }}
+                                                                >
+                                                                    수정
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 text-red-300"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDeleteComment(c.id);
+                                                                    }}
+                                                                >
+                                                                    삭제
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+
                     </div>
                 </div>
             </div>

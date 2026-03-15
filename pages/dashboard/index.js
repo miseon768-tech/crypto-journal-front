@@ -73,7 +73,7 @@ export default function Dashboard() {
             </div>
 
             {/* ===== 내용 영역 ===== */}
-            <div className="bg-white/10 p-6 rounded-2xl backdrop-blur-md min-h-[200px]">
+            <div className="bg-white/10 p-6 rounded-2xl backdrop-blur-md min-h-[200px] overflow-visible">
                 {!activeTab && <div>카드를 클릭하면 내용이 여기에 표시됩니다.</div>}
 
                 {activeTab === "wallet" && <WalletComponent key={walletKey} />}
