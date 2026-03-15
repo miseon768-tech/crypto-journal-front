@@ -36,6 +36,10 @@ export default function Community() {
     const [comments, setComments] = useState([]);
     const [commentText, setCommentText] = useState("");
 
+    // comment edit/delete UI state
+    const [editingCommentId, setEditingCommentId] = useState(null);
+    const [editingCommentText, setEditingCommentText] = useState("");
+
     const [title, setTitle] = useState("");
     const [content, setContent] = useState("");
     const [searchKeyword, setSearchKeyword] = useState("");
@@ -68,12 +72,55 @@ export default function Community() {
     };
 
     const normalizeComment = (raw) => {
-        const c = raw?.comment || raw?.data || raw || {};
+        // 서버 응답은 comment_list: [ {id, postId, content, authorId, authorNickname, createdAt} ]
+        // 또는 update 응답은 { comment: {...}, success } 형태일 수 있어 둘 다 흡수
+        const c = raw?.comment || raw || {};
         return {
             id: c.id ?? c.commentId ?? c._id ?? null,
             content: c.content ?? c.body ?? "",
             createdAt: c.createdAt ?? c.created_at ?? null,
+            authorId: c.authorId ?? c.author_id ?? null,
+            authorNickname: c.authorNickname ?? c.author_nickname ?? null,
         };
+    };
+
+    const extractCommentsArray = (rawComments) => {
+        if (Array.isArray(rawComments)) return rawComments;
+        if (rawComments?.comment_list && Array.isArray(rawComments.comment_list)) return rawComments.comment_list;
+        if (rawComments?.data && Array.isArray(rawComments.data)) return rawComments.data;
+        // fallback: find first array
+        const seen = new Set();
+        const findArrayIn = (obj) => {
+            if (!obj || typeof obj !== 'object') return null;
+            if (seen.has(obj)) return null;
+            seen.add(obj);
+            if (Array.isArray(obj)) return obj;
+            for (const k of Object.keys(obj)) {
+                try {
+                    const v = obj[k];
+                    if (Array.isArray(v)) return v;
+                    if (v && typeof v === 'object') {
+                        const nested = findArrayIn(v);
+                        if (nested) return nested;
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            return null;
+        };
+        return findArrayIn(rawComments) || [];
+    };
+
+    const refetchComments = async (postId, token) => {
+        if (!postId) return;
+        let rawComments = [];
+        try {
+            rawComments = await getCommentsByPost(postId, token);
+        } catch (err) {
+            console.warn('댓글 목록 재조회 실패', err);
+            rawComments = [];
+        }
+        const list = extractCommentsArray(rawComments);
+        setComments(list.map(normalizeComment));
     };
 
 
@@ -248,10 +295,10 @@ export default function Community() {
 
             setSelectedPost(post);
 
-            let rawComments = [];
-            try { rawComments = await getCommentsByPost(post.id, token); } catch (err) { console.warn('댓글 조회 실패', err); }
-            const list = Array.isArray(rawComments) ? rawComments : rawComments?.comment_list ?? rawComments?.data ?? [];
-            setComments(list.map(normalizeComment));
+            // reset comment edit state when opening a post
+            setEditingCommentId(null);
+            setEditingCommentText("");
+            await refetchComments(post.id, token);
 
             setMode("detail");
         } catch (e) { console.error("상세 글 불러오기 실패", e); alert(e?.message || '상세 불러오기 실패'); }
@@ -263,12 +310,52 @@ export default function Community() {
         if (!token) return alert('댓글 작성은 로그인 필요');
         try {
             await addComment({ postId: selectedPost.id, content: commentText }, token);
-            let rawComments = [];
-            try { rawComments = await getCommentsByPost(selectedPost.id, token); } catch (err) { console.warn('댓글 목록 재조회 실패', err); }
-            const list = Array.isArray(rawComments) ? rawComments : rawComments?.comment_list ?? rawComments?.data ?? [];
-            setComments(list.map(normalizeComment));
+            await refetchComments(selectedPost.id, token);
             setCommentText("");
         } catch (e) { console.error("댓글 작성 실패", e); alert(e?.message || '댓글 작성 실패'); }
+    };
+
+    const handleStartEditComment = (comment) => {
+        if (!comment?.id) return;
+        setEditingCommentId(comment.id);
+        setEditingCommentText(comment.content || "");
+    };
+
+    const handleCancelEditComment = () => {
+        setEditingCommentId(null);
+        setEditingCommentText("");
+    };
+
+    const handleUpdateComment = async () => {
+        if (!selectedPost?.id) return;
+        if (!editingCommentId) return;
+        if (!editingCommentText.trim()) return alert('댓글 내용을 입력하세요.');
+        const token = getToken();
+        if (!token) return alert('댓글 수정은 로그인 필요');
+        try {
+            await updateComment(editingCommentId, editingCommentText, token);
+            await refetchComments(selectedPost.id, token);
+            handleCancelEditComment();
+        } catch (e) {
+            console.error('댓글 수정 실패', e);
+            alert(e?.message || '댓글 수정 실패');
+        }
+    };
+
+    const handleDeleteComment = async (commentId) => {
+        if (!selectedPost?.id) return;
+        if (!commentId) return;
+        const token = getToken();
+        if (!token) return alert('댓글 삭제는 로그인 필요');
+        if (!confirm('댓글을 삭제할까요?')) return;
+        try {
+            await deleteComment(commentId, token);
+            await refetchComments(selectedPost.id, token);
+            if (editingCommentId === commentId) handleCancelEditComment();
+        } catch (e) {
+            console.error('댓글 삭제 실패', e);
+            alert(e?.message || '댓글 삭제 실패');
+        }
     };
 
     // =======================
@@ -455,8 +542,55 @@ export default function Community() {
                 <div>
                     <h3 className="text-xl font-bold mb-2">댓글</h3>
                     {comments.map((c) => (
-                        <div key={c.id} className="bg-white/10 p-3 rounded mb-2">
-                            <p>{c.content}</p>
+                        <div key={c.id || `${c.createdAt || ''}-${c.content?.slice(0, 10) || ''}`} className="bg-white/10 p-3 rounded mb-2">
+                            {editingCommentId === c.id ? (
+                                <div className="flex flex-col gap-2">
+                                    <input
+                                        value={editingCommentText}
+                                        onChange={(e) => setEditingCommentText(e.target.value)}
+                                        className="w-full px-3 py-2 rounded bg-gray-800"
+                                        placeholder="댓글 수정..."
+                                    />
+                                    <div className="flex gap-2 justify-end">
+                                        <button
+                                            onClick={handleUpdateComment}
+                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            수정 완료
+                                        </button>
+                                        <button
+                                            onClick={handleCancelEditComment}
+                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-gray-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-gray-500"
+                                        >
+                                            취소
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1">
+                                        <div className="text-xs text-gray-300 mb-1">
+                                            {c.authorNickname ? c.authorNickname : (c.authorId ? `user:${c.authorId}` : '')}
+                                            {c.createdAt ? ` · ${new Date(c.createdAt).toLocaleString()}` : ''}
+                                        </div>
+                                        <p className="whitespace-pre-wrap">{c.content}</p>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button
+                                            onClick={() => handleStartEditComment(c)}
+                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            수정
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteComment(c.id)}
+                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-red-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                                        >
+                                            삭제
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ))}
                     <div className="flex gap-2 mt-2">
