@@ -37,7 +37,17 @@ export default function Community() {
     const [selectedPost, setSelectedPost] = useState(null);
 
     // post like UI state (backend response doesn't include whether current user liked)
-    const [likedPostIds, setLikedPostIds] = useState(() => new Set());
+    // persist locally so refresh doesn't flip unexpectedly
+    const [likedPostIds, setLikedPostIds] = useState(() => {
+        if (typeof window === 'undefined') return new Set();
+        try {
+            const raw = localStorage.getItem('community_liked_post_ids');
+            const arr = raw ? JSON.parse(raw) : [];
+            return new Set(Array.isArray(arr) ? arr : []);
+        } catch (e) {
+            return new Set();
+        }
+    });
     const [selectedPostLiked, setSelectedPostLiked] = useState(false);
 
     const [comments, setComments] = useState([]);
@@ -258,6 +268,16 @@ export default function Community() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // persist liked posts
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            localStorage.setItem('community_liked_post_ids', JSON.stringify(Array.from(likedPostIds)));
+        } catch (e) {
+            // ignore
+        }
+    }, [likedPostIds]);
+
     // close menus on outside click / ESC
     useEffect(() => {
         const onDocClick = (e) => {
@@ -361,12 +381,13 @@ export default function Community() {
         if (!postId) return;
 
         const wasLiked = likedPostIds.has(postId);
+        const newLiked = !wasLiked;
 
         // optimistic state
         setLikedPostIds((prev) => {
             const next = new Set(prev);
-            if (wasLiked) next.delete(postId);
-            else next.add(postId);
+            if (newLiked) next.add(postId);
+            else next.delete(postId);
             return next;
         });
 
@@ -374,24 +395,55 @@ export default function Community() {
         setPosts((prev) => prev.map((p) => {
             if (p.id !== postId) return p;
             const current = typeof p.likeCount === 'number' ? p.likeCount : 0;
-            return { ...p, likeCount: Math.max(0, wasLiked ? current - 1 : current + 1) };
+            return { ...p, likeCount: Math.max(0, newLiked ? current + 1 : current - 1) };
         }));
 
         if (selectedPost?.id === postId) {
-            setSelectedPostLiked(!wasLiked);
+            setSelectedPostLiked(newLiked);
             setSelectedPost((prev) => {
                 if (!prev || prev.id !== postId) return prev;
                 const current = typeof prev.likeCount === 'number' ? prev.likeCount : 0;
-                return { ...prev, likeCount: Math.max(0, wasLiked ? current - 1 : current + 1) };
+                return { ...prev, likeCount: Math.max(0, newLiked ? current + 1 : current - 1) };
             });
         }
 
         try {
-            if (wasLiked) await unlikePost(postId, token);
-            else await likePost(postId, token);
+            // API 호출은 "토글 후 상태" 기준으로 명확하게
+            if (newLiked) {
+                await likePost(postId, token);
+            } else {
+                await unlikePost(postId, token);
+            }
         } catch (e) {
+            const msg = (e?.message || '').toString();
+            const dupLike = newLiked && (msg.includes('이미') || msg.toLowerCase().includes('already'));
+            const dupUnlike = !newLiked && (msg.includes('이미') || msg.toLowerCase().includes('already'));
+
             console.error('글 좋아요 토글 실패', e);
-            // rollback
+
+            // 서버 상태와 프론트 상태가 엇갈린 경우 자동 동기화
+            if (dupLike) {
+                // 서버는 이미 liked 상태 -> 프론트도 liked로 맞춘다(알림 없이)
+                setLikedPostIds((prev) => {
+                    const next = new Set(prev);
+                    next.add(postId);
+                    return next;
+                });
+                setSelectedPostLiked(true);
+                return;
+            }
+            if (dupUnlike) {
+                // 서버는 이미 unliked 상태 -> 프론트도 unliked로 맞춘다
+                setLikedPostIds((prev) => {
+                    const next = new Set(prev);
+                    next.delete(postId);
+                    return next;
+                });
+                setSelectedPostLiked(false);
+                return;
+            }
+
+            // rollback (기타 에러)
             setLikedPostIds((prev) => {
                 const next = new Set(prev);
                 if (wasLiked) next.add(postId);
@@ -440,7 +492,8 @@ export default function Community() {
             if (!post.id) return;
 
             setSelectedPost(post);
-            setSelectedPostLiked(likedPostIds.has(post.id));
+            // IMPORTANT: liked depends ONLY on likedPostIds (not likeCount)
+            setSelectedPostLiked(Boolean(post?.id && likedPostIds.has(post.id)));
 
             // reset menus
             setPostMenuOpen(false);
@@ -464,12 +517,13 @@ export default function Community() {
         if (!commentId) return;
 
         const wasLiked = likedCommentIds.has(commentId);
+        const newLiked = !wasLiked;
 
         // optimistic UI update
         setLikedCommentIds((prev) => {
             const next = new Set(prev);
-            if (wasLiked) next.delete(commentId);
-            else next.add(commentId);
+            if (newLiked) next.add(commentId);
+            else next.delete(commentId);
             return next;
         });
 
@@ -477,12 +531,12 @@ export default function Community() {
         setComments((prev) => prev.map((c) => {
             if (c.id !== commentId) return c;
             const current = typeof c.likeCount === 'number' ? c.likeCount : 0;
-            return { ...c, likeCount: Math.max(0, wasLiked ? current - 1 : current + 1) };
+            return { ...c, likeCount: Math.max(0, newLiked ? current + 1 : current - 1) };
         }));
 
         try {
-            if (wasLiked) await unlikeComment(commentId, token);
-            else await likeComment(commentId, token);
+            if (newLiked) await likeComment(commentId, token);
+            else await unlikeComment(commentId, token);
         } catch (e) {
             console.error('댓글 좋아요 토글 실패', e);
             // rollback
