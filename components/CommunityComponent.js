@@ -50,6 +50,9 @@ export default function Community() {
     });
     const [selectedPostLiked, setSelectedPostLiked] = useState(false);
 
+    // optimistic counts for list (server may not return likeCount)
+    const [optimisticLikeCountByPostId, setOptimisticLikeCountByPostId] = useState({});
+
     const [comments, setComments] = useState([]);
     const [commentText, setCommentText] = useState("");
 
@@ -90,6 +93,11 @@ export default function Community() {
 
     const normalizePost = (raw) => {
         const p = raw?.post || raw?.data || raw || {};
+        const toNumOrNull = (v) => {
+            if (v === null || v === undefined) return null;
+            const n = typeof v === 'number' ? v : Number(v);
+            return Number.isFinite(n) ? n : null;
+        };
         return {
             id: p.id ?? p.postId ?? p._id ?? null,
             title: p.title ?? p.subject ?? "",
@@ -97,9 +105,9 @@ export default function Community() {
             createdAt: p.createdAt ?? p.created_at ?? null,
             authorId: p.authorId ?? p.author_id ?? p.memberId ?? p.member_id ?? p.member?.id ?? null,
             authorNickname: p.authorNickname ?? p.author_nickname ?? p.memberNickname ?? p.member_nickname ?? p.member?.nickname ?? null,
-            viewCount: p.viewCount ?? p.view_count ?? null,
-            likeCount: p.likeCount ?? p.like_count ?? p.likes ?? p.likeCnt ?? null,
-            commentCount: p.commentCount ?? p.comment_count ?? p.comments ?? p.commentCnt ?? null,
+            viewCount: toNumOrNull(p.viewCount ?? p.view_count),
+            likeCount: toNumOrNull(p.likeCount ?? p.like_count ?? p.likes ?? p.likeCnt),
+            commentCount: toNumOrNull(p.commentCount ?? p.comment_count ?? p.comments ?? p.commentCnt),
         };
     };
 
@@ -391,12 +399,19 @@ export default function Community() {
             return next;
         });
 
-        // optimistic counts
+        // optimistic counts (update list state + keep override map)
         setPosts((prev) => prev.map((p) => {
             if (p.id !== postId) return p;
-            const current = typeof p.likeCount === 'number' ? p.likeCount : 0;
-            return { ...p, likeCount: Math.max(0, newLiked ? current + 1 : current - 1) };
+            const current = typeof p.likeCount === 'number' ? p.likeCount : (optimisticLikeCountByPostId[postId] ?? 0);
+            const nextCount = Math.max(0, newLiked ? current + 1 : current - 1);
+            return { ...p, likeCount: nextCount };
         }));
+        setOptimisticLikeCountByPostId((prev) => {
+            const current = prev[postId] ?? (posts.find((p) => p.id === postId)?.likeCount ?? 0);
+            const base = typeof current === 'number' ? current : 0;
+            const nextCount = Math.max(0, newLiked ? base + 1 : base - 1);
+            return { ...prev, [postId]: nextCount };
+        });
 
         if (selectedPost?.id === postId) {
             setSelectedPostLiked(newLiked);
@@ -455,6 +470,11 @@ export default function Community() {
                 const current = typeof p.likeCount === 'number' ? p.likeCount : 0;
                 return { ...p, likeCount: Math.max(0, wasLiked ? current + 1 : current - 1) };
             }));
+            setOptimisticLikeCountByPostId((prev) => {
+                const current = prev[postId] ?? 0;
+                const nextCount = Math.max(0, wasLiked ? current + 1 : current - 1);
+                return { ...prev, [postId]: nextCount };
+            });
             if (selectedPost?.id === postId) {
                 setSelectedPostLiked(wasLiked);
                 setSelectedPost((prev) => {
@@ -494,6 +514,16 @@ export default function Community() {
             setSelectedPost(post);
             // IMPORTANT: liked depends ONLY on likedPostIds (not likeCount)
             setSelectedPostLiked(Boolean(post?.id && likedPostIds.has(post.id)));
+
+            // if we have an optimistic count for this post, prefer it in detail UI
+            try {
+                const optimistic = optimisticLikeCountByPostId[post.id];
+                if (typeof optimistic === 'number') {
+                    setSelectedPost((prev) => ({ ...prev, likeCount: optimistic }));
+                }
+            } catch (e) {
+                // ignore
+            }
 
             // reset menus
             setPostMenuOpen(false);
@@ -742,7 +772,11 @@ export default function Community() {
                                     aria-label="좋아요"
                                 >
                                     <span aria-hidden="true">{likedPostIds.has(post.id) ? '❤️' : '🤍'}</span>
-                                    <span className="tabular-nums">{typeof post.likeCount === 'number' ? post.likeCount : 0}</span>
+                                    <span className="tabular-nums">
+                                        {typeof optimisticLikeCountByPostId[post.id] === 'number'
+                                            ? optimisticLikeCountByPostId[post.id]
+                                            : (typeof post.likeCount === 'number' ? post.likeCount : 0)}
+                                    </span>
                                 </button>
                                 <span className="inline-flex items-center gap-1">
                                     <span aria-hidden="true">💬</span>
@@ -932,7 +966,11 @@ export default function Community() {
                                 aria-label="좋아요"
                             >
                                 <span aria-hidden="true">{selectedPostLiked ? '❤️' : '🤍'}</span>
-                                <span className="tabular-nums">{typeof selectedPost.likeCount === 'number' ? selectedPost.likeCount : 0}</span>
+                                <span className="tabular-nums">
+                                    {typeof optimisticLikeCountByPostId[selectedPost.id] === 'number'
+                                        ? optimisticLikeCountByPostId[selectedPost.id]
+                                        : (typeof selectedPost.likeCount === 'number' ? selectedPost.likeCount : 0)}
+                                </span>
                             </button>
                             <button
                                 type="button"
