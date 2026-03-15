@@ -35,6 +35,10 @@ export default function Community() {
     const [posts, setPosts] = useState([]);
     const [selectedPost, setSelectedPost] = useState(null);
 
+    // post like UI state (backend response doesn't include whether current user liked)
+    const [likedPostIds, setLikedPostIds] = useState(() => new Set());
+    const [selectedPostLiked, setSelectedPostLiked] = useState(false);
+
     const [comments, setComments] = useState([]);
     const [commentText, setCommentText] = useState("");
 
@@ -349,6 +353,67 @@ export default function Community() {
         catch (e) { console.error("좋아요 취소 실패", e); alert(e?.message || '좋아요 취소 실패'); }
     };
 
+    // Blind-style: 🤍(not liked) / ❤️(liked)
+    const togglePostLike = async (postId) => {
+        const token = getToken();
+        if (!token) return alert("로그인 필요");
+        if (!postId) return;
+
+        const wasLiked = likedPostIds.has(postId);
+
+        // optimistic state
+        setLikedPostIds((prev) => {
+            const next = new Set(prev);
+            if (wasLiked) next.delete(postId);
+            else next.add(postId);
+            return next;
+        });
+
+        // optimistic counts
+        setPosts((prev) => prev.map((p) => {
+            if (p.id !== postId) return p;
+            const current = typeof p.likeCount === 'number' ? p.likeCount : 0;
+            return { ...p, likeCount: Math.max(0, wasLiked ? current - 1 : current + 1) };
+        }));
+
+        if (selectedPost?.id === postId) {
+            setSelectedPostLiked(!wasLiked);
+            setSelectedPost((prev) => {
+                if (!prev || prev.id !== postId) return prev;
+                const current = typeof prev.likeCount === 'number' ? prev.likeCount : 0;
+                return { ...prev, likeCount: Math.max(0, wasLiked ? current - 1 : current + 1) };
+            });
+        }
+
+        try {
+            if (wasLiked) await unlikePost(postId, token);
+            else await likePost(postId, token);
+        } catch (e) {
+            console.error('글 좋아요 토글 실패', e);
+            // rollback
+            setLikedPostIds((prev) => {
+                const next = new Set(prev);
+                if (wasLiked) next.add(postId);
+                else next.delete(postId);
+                return next;
+            });
+            setPosts((prev) => prev.map((p) => {
+                if (p.id !== postId) return p;
+                const current = typeof p.likeCount === 'number' ? p.likeCount : 0;
+                return { ...p, likeCount: Math.max(0, wasLiked ? current + 1 : current - 1) };
+            }));
+            if (selectedPost?.id === postId) {
+                setSelectedPostLiked(wasLiked);
+                setSelectedPost((prev) => {
+                    if (!prev || prev.id !== postId) return prev;
+                    const current = typeof prev.likeCount === 'number' ? prev.likeCount : 0;
+                    return { ...prev, likeCount: Math.max(0, wasLiked ? current + 1 : current - 1) };
+                });
+            }
+            alert(e?.message || '좋아요 처리 실패');
+        }
+    };
+
     // =======================
     // 상세 글 + 댓글
     // =======================
@@ -361,6 +426,7 @@ export default function Community() {
             if (!post.id) return;
 
             setSelectedPost(post);
+            setSelectedPostLiked(likedPostIds.has(post.id));
 
             // reset menus
             setPostMenuOpen(false);
@@ -601,10 +667,15 @@ export default function Community() {
                                     <span aria-hidden="true">👁️</span>
                                     <span className="tabular-nums">{typeof post.viewCount === 'number' ? post.viewCount : 0}</span>
                                 </span>
-                                <span className="inline-flex items-center gap-1">
-                                    <span aria-hidden="true">❤️</span>
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 hover:text-white"
+                                    onClick={(e) => { e.stopPropagation(); togglePostLike(post.id); }}
+                                    aria-label="좋아요"
+                                >
+                                    <span aria-hidden="true">{likedPostIds.has(post.id) ? '❤️' : '🤍'}</span>
                                     <span className="tabular-nums">{typeof post.likeCount === 'number' ? post.likeCount : 0}</span>
-                                </span>
+                                </button>
                                 <span className="inline-flex items-center gap-1">
                                     <span aria-hidden="true">💬</span>
                                     <span className="tabular-nums">{typeof post.commentCount === 'number' ? post.commentCount : 0}</span>
@@ -789,10 +860,11 @@ export default function Community() {
                             <button
                                 type="button"
                                 className="inline-flex items-center gap-2 hover:text-white"
-                                onClick={(e) => { e.stopPropagation(); /* TODO: like toggle */ }}
+                                onClick={(e) => { e.stopPropagation(); togglePostLike(selectedPost.id); }}
                                 aria-label="좋아요"
                             >
-                                <span aria-hidden="true">❤️ 좋아요</span>
+                                <span aria-hidden="true">{selectedPostLiked ? '❤️' : '🤍'}</span>
+                                <span className="tabular-nums">{typeof selectedPost.likeCount === 'number' ? selectedPost.likeCount : 0}</span>
                             </button>
                             <button
                                 type="button"
