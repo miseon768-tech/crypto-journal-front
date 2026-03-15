@@ -877,6 +877,7 @@ export default function Community() {
                     <div className="px-4 py-4">
                         {/* 채널 라인 */}
                         <div className="flex items-center justify-between text-sm mb-3">
+                            <div />
                             <button className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15">팔로우</button>
                         </div>
 
@@ -981,7 +982,7 @@ export default function Community() {
                                 <span aria-hidden="true">💬</span>
                                 <span className="tabular-nums">{typeof selectedPost.commentCount === 'number' ? selectedPost.commentCount : comments.length}</span>
                             </button>
-                            <button type="button" className="hover:text-white">공유하기</button>
+                            <button type="button" className="ml-auto hover:text-white">공유하기</button>
                         </div>
                     </div>
                 </div>
