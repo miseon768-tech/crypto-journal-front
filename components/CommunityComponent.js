@@ -67,7 +67,17 @@ export default function Community() {
     const [commentText, setCommentText] = useState("");
 
     // comment like UI state (backend doesn't provide whether current user liked each comment)
-    const [likedCommentIds, setLikedCommentIds] = useState(() => new Set());
+    // persist locally so refresh doesn't flip unexpectedly
+    const [likedCommentIds, setLikedCommentIds] = useState(() => {
+        if (typeof window === 'undefined') return new Set();
+        try {
+            const raw = localStorage.getItem('community_liked_comment_ids');
+            const arr = raw ? JSON.parse(raw) : [];
+            return new Set(Array.isArray(arr) ? arr.map((v) => String(v)) : []);
+        } catch (e) {
+            return new Set();
+        }
+    });
     // pending requests for comment likes (used to disable button and prevent duplicate requests)
     const [pendingCommentLikes, setPendingCommentLikes] = useState(() => new Set());
 
@@ -313,6 +323,16 @@ export default function Community() {
             // ignore
         }
     }, [optimisticLikeCountByPostId]);
+
+    // persist liked comment ids so refresh doesn't flip comment heart state
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            localStorage.setItem('community_liked_comment_ids', JSON.stringify(Array.from(likedCommentIds || [])));
+        } catch (e) {
+            // ignore
+        }
+    }, [likedCommentIds]);
 
     // close menus on outside click / ESC
     useEffect(() => {
@@ -604,8 +624,9 @@ export default function Community() {
             setPostMenuOpen(false);
             setCommentMenuOpenId(null);
 
-            // reset comment like UI state per post (optional: keep global if you want)
-            setLikedCommentIds(new Set());
+            // Keep comment like UI state (we persist likedCommentIds in localStorage)
+            // NOTE: previously we cleared likedCommentIds here which made hearts
+            // turn white after refresh/navigation; keep the persisted state instead.
 
             // reset comment edit state when opening a post
             setEditingCommentId(null);
