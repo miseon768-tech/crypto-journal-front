@@ -42,15 +42,18 @@ export const increaseViewCount = (postId, token) =>
 export const getMyPosts = (token) =>
     handleFetch(`${API_BASE}/me`, { headers: makeHeaders(token) }, "내 글 조회 실패");
 
-// 글 작성
-export const createPost = (payload, token) => {
+// 글 작성 (및 수정: 수정 시 postId 쿼리 파라미터를 사용합니다)
+// createPost(payload, token, postId?) 형태로 사용하세요.
+export const createPost = (payload, token, postId) => {
     if (!token) throw { message: "로그인 후 시도해주세요." };
-    return handleFetch(API_BASE, { method: "POST", headers: makeHeaders(token), body: JSON.stringify(payload) }, "글 작성 실패");
+    const url = postId ? `${API_BASE}?postId=${encodeURIComponent(postId)}` : API_BASE;
+    return handleFetch(url, { method: "POST", headers: makeHeaders(token), body: JSON.stringify(payload) }, "글 작성 실패");
 };
 
-// 글 수정
+// 기존 updatePost 호출을 사용하는 코드와의 호환을 위해 포워딩 함수 제공
 export const updatePost = (postId, payload, token) =>
-    handleFetch(`${API_BASE}/${postId}`, { method: "PUT", headers: makeHeaders(token), body: JSON.stringify(payload) }, "글 수정 실패");
+    // backend는 PUT 대신 POST + ?postId= 를 기대하므로 createPost로 위임
+    createPost(payload, token, postId);
 
 // 글 삭제
 export const deletePost = (postId, token) =>
@@ -77,8 +80,10 @@ export const getPostLikeCount = (postId, token) =>
     handleFetch(`${API_BASE}/like/count/${postId}`, { headers: makeHeaders(token) }, "좋아요 수 조회 실패");
 
 // 임시 글 저장
-export const saveDraft = (data, token) =>
-    handleFetch(`${API_BASE}/draft`, { method: "POST", headers: makeHeaders(token), body: JSON.stringify(data) }, "임시 글 저장 실패");
+// 임시 글 저장: backend의 savePost를 사용하도록 변경 (draft 플래그 포함)
+export const saveDraft = (data, token, postId) =>
+    // data: { title, content, ... } -> 강제 draft=true
+    createPost({ ...data, draft: true }, token, postId);
 
 // 임시 글 조회
 export const getDrafts = (token) =>

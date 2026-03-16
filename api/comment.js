@@ -18,71 +18,105 @@ const makeHeaders = (token) => {
 async function handleResponse(res, fallbackMessage) {
     const text = await res.text().catch(() => null);
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch (e) { /* not json */ }
+    try { json = text ? JSON.parse(text) : null; } catch (e) { /* ignore non-json */ }
 
-    if (!res.ok) {
-        // Prefer structured message from JSON, otherwise use raw text or fallback
-        const msg = (json && json.message) ? json.message : (text || fallbackMessage || `HTTP ${res.status}`);
-        // Include HTTP status in the Error message to make debugging easier
-        const err = new Error(`${msg} (HTTP ${res.status})`);
-        err.status = res.status;
-        // Attach parsed JSON if available, otherwise raw text
-        err.body = json !== null ? json : text;
-        throw err;
+    if (res.ok) {
+        return json !== null ? json : text;
     }
 
-    return json !== null ? json : text;
+    const message = (json && json.message) ? json.message : (text || fallbackMessage || `Request failed`);
+    // log non-ok responses for easier debugging (don't expose tokens)
+    try {
+        console.debug('[api/comment] non-ok response', { status: res.status, message, body: json !== null ? json : text });
+    } catch (e) { /* ignore */ }
+
+    if (res.status >= 500) {
+        try { console.error('[api/comment] server error', { status: res.status, message, body: json !== null ? json : text }); } catch (e) { /* ignore */ }
+    }
+
+    return {
+        __error: true,
+        status: res.status,
+        body: json !== null ? json : text,
+        message,
+        isServerError: res.status >= 500,
+    };
 }
 
 // 댓글 작성
 export const addComment = async (data, token) => {
     if (!data || !data.postId) throw new Error('postId가 필요합니다.');
-    const res = await fetch(`${API_BASE}/${encodeURIComponent(data.postId)}`, {
-        method: 'POST',
-        headers: makeHeaders(token),
-        body: JSON.stringify({ content: data.content }),
-    });
-    return handleResponse(res, '댓글 작성 실패');
+    try {
+        const res = await fetch(`${API_BASE}/${encodeURIComponent(data.postId)}`, {
+            method: 'POST',
+            headers: makeHeaders(token),
+            body: JSON.stringify({ content: data.content }),
+        });
+        return await handleResponse(res, '댓글 작성 실패');
+    } catch (err) {
+        console.error('[api/comment] addComment error', { postId: data.postId, err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '댓글 작성 실패' };
+    }
 };
 
 // 댓글 수정
 export const updateComment = async (commentId, content, token) => {
     if (!commentId) throw new Error('commentId가 필요합니다.');
-    const res = await fetch(`${API_BASE}/${commentId}`, {
-        method: 'PUT',
-        headers: makeHeaders(token),
-        body: JSON.stringify({ content }),
-    });
-    return handleResponse(res, '댓글 수정 실패');
+    try {
+        const res = await fetch(`${API_BASE}/${commentId}`, {
+            method: 'PUT',
+            headers: makeHeaders(token),
+            body: JSON.stringify({ content }),
+        });
+        return await handleResponse(res, '댓글 수정 실패');
+    } catch (err) {
+        console.error('[api/comment] updateComment error', { commentId, err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '댓글 수정 실패' };
+    }
 };
 
 // 댓글 삭제
 export const deleteComment = async (commentId, token) => {
     if (!commentId) throw new Error('commentId가 필요합니다.');
-    const res = await fetch(`${API_BASE}/${commentId}`, {
-        method: 'DELETE',
-        headers: makeHeaders(token),
-    });
-    return handleResponse(res, '댓글 삭제 실패');
+    try {
+        const res = await fetch(`${API_BASE}/${commentId}`, {
+            method: 'DELETE',
+            headers: makeHeaders(token),
+        });
+        return await handleResponse(res, '댓글 삭제 실패');
+    } catch (err) {
+        console.error('[api/comment] deleteComment error', { commentId, err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '댓글 삭제 실패' };
+    }
 };
 
 // 특정 글 댓글 목록 조회
 export const getCommentsByPost = async (postId, token) => {
     if (!postId) throw new Error('postId가 필요합니다.');
-    const res = await fetch(`${API_BASE}/${postId}`, {
-        method: 'GET',
-        headers: makeHeaders(token),
-    });
-    return handleResponse(res, '댓글 목록 조회 실패');
+    try {
+        const res = await fetch(`${API_BASE}/${postId}`, {
+            method: 'GET',
+            headers: makeHeaders(token),
+        });
+        return await handleResponse(res, '댓글 목록 조회 실패');
+    } catch (err) {
+        console.error('[api/comment] getCommentsByPost error', { postId, err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '댓글 목록 조회 실패' };
+    }
 };
 
 // 사용자 댓글 목록 조회
 export const getCommentsByUser = async (token) => {
-    const res = await fetch(`${API_BASE}/user`, {
-        method: 'GET',
-        headers: makeHeaders(token),
-    });
-    return handleResponse(res, '사용자 댓글 조회 실패');
+    try {
+        const res = await fetch(`${API_BASE}/user`, {
+            method: 'GET',
+            headers: makeHeaders(token),
+        });
+        return await handleResponse(res, '사용자 댓글 조회 실패');
+    } catch (err) {
+        console.error('[api/comment] getCommentsByUser error', { err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '사용자 댓글 조회 실패' };
+    }
 };
 
 // 댓글 좋아요

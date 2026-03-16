@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
     getPosts,
     getPostById,
@@ -65,6 +65,9 @@ export default function Community() {
 
     const [comments, setComments] = useState([]);
     const [commentText, setCommentText] = useState("");
+    // comment sort state: 'latest' | 'likes'
+    const [sortBy, setSortBy] = useState('latest');
+    const [showSortMenu, setShowSortMenu] = useState(false);
 
     // comment like UI state (backend doesn't provide whether current user liked each comment)
     // persist locally so refresh doesn't flip unexpectedly
@@ -89,6 +92,8 @@ export default function Community() {
     // comment edit/delete UI state
     const [editingCommentId, setEditingCommentId] = useState(null);
     const [editingCommentText, setEditingCommentText] = useState("");
+    // per-comment delete loading flags to prevent duplicate delete clicks
+    const [deleteLoading, setDeleteLoading] = useState({}); // { [commentId]: true }
 
     // Blind-style menus
     const [postMenuOpen, setPostMenuOpen] = useState(false);
@@ -168,6 +173,8 @@ export default function Community() {
             authorId: c.authorId ?? c.author_id ?? null,
             authorNickname: c.authorNickname ?? c.author_nickname ?? null,
             likeCount: c.likeCount ?? c.like_count ?? c.likes ?? c.likeCnt ?? null,
+            // some APIs return whether current user liked this comment
+            likedByMe: (c.isLiked ?? c.likedByMe ?? c.liked_by_me ?? c.liked ?? null) === true,
             replyCount: c.replyCount ?? c.reply_count ?? c.replies ?? c.replyCnt ?? null,
         };
     };
@@ -208,10 +215,47 @@ export default function Community() {
             rawComments = [];
         }
         const list = extractCommentsArray(rawComments);
-        setComments(list.map(normalizeComment));
-        // NOTE: 서버에서 내가 좋아요한 댓글 목록/플래그를 내려주지 않아
-        // likedCommentIds는 사용자 상호작용 기준으로만 유지합니다.
+        const normalized = list.map(normalizeComment);
+        setComments(normalized);
+        // If server provides per-comment liked flag, merge it into likedCommentIds so UI reflects server truth
+        try {
+            const newlyLiked = new Set(likedCommentIds);
+            normalized.forEach((c) => {
+                if (c && c.id && c.likedByMe) newlyLiked.add(String(c.id));
+            });
+            // only update if changed
+            const same = (() => {
+                if (newlyLiked.size !== (likedCommentIds ? likedCommentIds.size : 0)) return false;
+                for (const v of newlyLiked) if (!likedCommentIds.has(v)) return false;
+                return true;
+            })();
+            if (!same) setLikedCommentIds(newlyLiked);
+        } catch (e) {
+            // ignore merge errors
+        }
     };
+
+    // memoized sorted comments based on sortBy
+    const getSortedComments = useMemo(() => {
+        const sorter = (a, b) => {
+            if (sortBy === 'likes') {
+                const la = typeof a.likeCount === 'number' ? a.likeCount : 0;
+                const lb = typeof b.likeCount === 'number' ? b.likeCount : 0;
+                return lb - la;
+            }
+            // latest
+            const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return db - da;
+        };
+        return () => {
+            try {
+                return [...comments].sort(sorter);
+            } catch (e) {
+                return comments;
+            }
+        };
+    }, [comments, sortBy]);
 
 
     // =======================
@@ -376,17 +420,8 @@ export default function Community() {
 
         try {
             if (isEditing && selectedPost?.id) {
-                // NOTE: adjust the argument order to match your API:
-                // common patterns:
-                //  - updatePost(postId, data, token)
-                //  - updatePost({ title, content }, postId, token)
-                // If your updatePost has a different signature, change the call accordingly.
-                try {
-                    await updatePost(selectedPost.id, { title, content }, token);
-                } catch (tryAlt) {
-                    // fallback attempt with alternative arg order
-                    await updatePost({ title, content }, selectedPost.id, token);
-                }
+                // backend expects POST /api/post?postId=... for updates
+                await createPost({ title, content }, token, selectedPost.id);
             } else {
                 await createPost({ title, content }, token);
             }
@@ -759,14 +794,94 @@ export default function Community() {
         const token = getToken();
         if (!token) return alert('댓글 삭제는 로그인 필요');
         if (!confirm('댓글을 삭제할까요?')) return;
+
+        // normalize id to string to avoid mismatches between number/string ids
+        const sid = normalizeId(commentId);
+
+        // prevent duplicate deletes
+        if (deleteLoading[sid]) return;
+        setDeleteLoading(prev => ({ ...prev, [sid]: true }));
+
+        // find original index & item for potential rollback
+        const idx = comments.findIndex(c => String(c.id) === String(sid));
+        const original = idx !== -1 ? comments[idx] : null;
+
+        // optimistic update: remove from UI immediately
+        setComments(prev => prev.filter(c => String(c.id) !== String(sid)));
+
         try {
-            await deleteComment(commentId, token);
-            await refetchComments(selectedPost.id, token);
-            if (editingCommentId === commentId) handleCancelEditComment();
+            const resp = await deleteComment(commentId, token);
+            try { console.debug('[Community] deleteComment response', resp); } catch (e) { /* ignore */ }
+
+            // If handleResponse returned a 4xx structured object, interpret it
+            if (resp && resp.__error) {
+                // 400/404 related to already-deleted or bad request: treat as success (server considers it gone)
+                if (resp.status === 400 || resp.status === 404) {
+                    // try to sync with server if possible
+                    try {
+                        const fresh = await getCommentsByPost(selectedPost.id, token);
+                        if (!(fresh && fresh.__error)) {
+                            const list = extractCommentsArray(fresh).map(normalizeComment);
+                            setComments(list);
+                        } else {
+                            // leave optimistic removal in place
+                        }
+                    } catch (e) {
+                        // ignore sync error, keep optimistic removal
+                        console.warn('댓글 삭제 후 목록 동기화 실패', e);
+                    }
+                } else if (resp.isServerError || (resp.status && Number(resp.status) >= 500)) {
+                    // Server error: rollback optimistic removal and show friendly message
+                    setComments(prev => {
+                        const copy = [...prev];
+                        if (original) {
+                            const exists = copy.some(c => c.id === original.id);
+                            if (!exists) {
+                                const insertAt = Math.min(Math.max(0, idx), copy.length);
+                                copy.splice(insertAt, 0, original);
+                            }
+                        }
+                        return copy;
+                    });
+                    try { console.error('댓글 삭제 실패 (서버 오류)', { status: resp.status, message: resp.message, body: resp.body }); } catch (e) { /* ignore */ }
+                    alert('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+                } else {
+                    // other client errors (4xx) -> conservative: rollback and notify
+                    setComments(prev => {
+                        const copy = [...prev];
+                        if (original) copy.splice(idx, 0, original);
+                        return copy;
+                    });
+                    console.error('댓글 삭제 실패 (클라이언트 오류)', resp.status, resp.message || resp.body);
+                    alert(resp.message || '댓글 삭제 실패');
+                }
+            } else {
+                // success: server deleted; if server returned updated list, use it
+                if (resp && resp.updatedComments) {
+                    setComments(resp.updatedComments.map(normalizeComment));
+                }
+            }
+
+            if (editingCommentId === sid || editingCommentId === commentId) handleCancelEditComment();
             setCommentMenuOpenId(null);
-        } catch (e) {
-            console.error('댓글 삭제 실패', e);
-            alert(e?.message || '댓글 삭제 실패');
+        } catch (err) {
+            // 5xx or network error -> rollback optimistic removal
+            console.error('댓글 삭제 요청 중 오류', err);
+            setComments(prev => {
+                const copy = [...prev];
+                if (original) {
+                    // try to restore at original index if possible
+                    const exists = copy.some(c => String(c.id) === String(original.id));
+                    if (!exists) {
+                        const insertAt = Math.min(Math.max(0, idx), copy.length);
+                        copy.splice(insertAt, 0, original);
+                    }
+                }
+                return copy;
+            });
+            alert(err?.message || '댓글 삭제 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도하세요.');
+        } finally {
+            setDeleteLoading(prev => ({ ...prev, [sid]: false }));
         }
     };
 
@@ -776,7 +891,11 @@ export default function Community() {
     const handleSaveDraft = async () => {
         const token = getToken();
         if (!token) return alert("로그인 필요");
-        try { await saveDraft({ title, content }, token); alert("임시저장 완료"); }
+        try {
+            // editing 중이면 selectedPost.id를 postId로 전달하여 기존 글을 임시저장(수정)합니다.
+            await saveDraft({ title, content }, token, isEditing && selectedPost?.id ? selectedPost.id : undefined);
+            alert("임시저장 완료");
+        }
         catch (e) { console.error("임시저장 실패", e); alert(e?.message || '임시저장 실패'); }
     };
 
@@ -959,13 +1078,13 @@ export default function Community() {
                         onClick={handleSubmit}
                         className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                        {isEditing ? "수정 완료" : "작성"}
+                        {isEditing ? "수정 완료" : "발행"}
                     </button>
                     <button
                         onClick={handleSaveDraft}
                         className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                        임시저장
+                        저장
                     </button>
                     <button
                         onClick={() => { setMode("list"); setIsEditing(false); setSelectedPost(null); setTitle(''); setContent(''); }}
@@ -1120,7 +1239,22 @@ export default function Community() {
                 <div className="mt-6 px-1 border-t border-white/10">
                     <div className="px-4 py-3 flex items-center justify-between">
                         <div className="text-base font-semibold">댓글 {comments.length}</div>
-                        <button className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15">추천순</button>
+                        <div className="relative">
+                            <button
+                                className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15"
+                                onClick={() => setShowSortMenu((s) => !s)}
+                                aria-haspopup="true"
+                                aria-expanded={showSortMenu}
+                            >
+                                {sortBy === 'likes' ? '추천순' : '최신순'}
+                            </button>
+                            {showSortMenu && (
+                                <div className="absolute right-0 mt-2 w-36 bg-[#0b0f19] border border-white/10 rounded-lg shadow-lg z-20">
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-white/10" onClick={() => { setSortBy('likes'); setShowSortMenu(false); }}>추천순</button>
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-white/10" onClick={() => { setSortBy('latest'); setShowSortMenu(false); }}>최신순</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <div className="px-4 py-4">
                         {/* 댓글 입력 (리스트와 동일한 가로폭: px-5 컨테이너 안에 배치) */}
@@ -1140,7 +1274,7 @@ export default function Community() {
                         </div>
 
                         <div className="mt-2">
-                            {comments.map((c) => (
+                            {getSortedComments().map((c) => (
                                 <div
                                     key={c.id || `${c.createdAt || ''}-${c.content?.slice(0, 10) || ''}`}
                                     className="py-4 border-b border-white/10"
@@ -1234,10 +1368,13 @@ export default function Community() {
                                                                     className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 text-red-300"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
+                                                                        if (deleteLoading[c.id]) return; // prevent duplicate clicks
                                                                         handleDeleteComment(c.id);
                                                                     }}
+                                                                    disabled={Boolean(deleteLoading[c.id])}
+                                                                    aria-busy={Boolean(deleteLoading[c.id])}
                                                                 >
-                                                                    삭제
+                                                                    {deleteLoading[c.id] ? '삭제...' : '삭제'}
                                                                 </button>
                                                             </div>
                                                         )}
