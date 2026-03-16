@@ -51,13 +51,30 @@ export default function Community() {
     const [selectedPostLiked, setSelectedPostLiked] = useState(false);
 
     // optimistic counts for list (server may not return likeCount)
-    const [optimisticLikeCountByPostId, setOptimisticLikeCountByPostId] = useState({});
+    // persist optimistic counts so a page refresh doesn't drop the optimistic +1
+    const [optimisticLikeCountByPostId, setOptimisticLikeCountByPostId] = useState(() => {
+        if (typeof window === 'undefined') return {};
+        try {
+            const raw = localStorage.getItem('community_optimistic_like_counts');
+            const obj = raw ? JSON.parse(raw) : {};
+            return obj && typeof obj === 'object' ? obj : {};
+        } catch (e) {
+            return {};
+        }
+    });
 
     const [comments, setComments] = useState([]);
     const [commentText, setCommentText] = useState("");
 
     // comment like UI state (backend doesn't provide whether current user liked each comment)
     const [likedCommentIds, setLikedCommentIds] = useState(() => new Set());
+    // pending requests for comment likes (used to disable button and prevent duplicate requests)
+    const [pendingCommentLikes, setPendingCommentLikes] = useState(() => new Set());
+
+    // helpers to normalize id checks (some APIs return numbers, some strings)
+    const isPendingComment = (id) => pendingCommentLikes.has(id) || pendingCommentLikes.has(String(id));
+    const isLikedComment = (id) => likedCommentIds.has(id) || likedCommentIds.has(String(id));
+    const normalizeId = (id) => String(id);
 
     // comment edit/delete UI state
     const [editingCommentId, setEditingCommentId] = useState(null);
@@ -133,8 +150,9 @@ export default function Community() {
         // 서버 응답은 comment_list: [ {id, postId, content, authorId, authorNickname, createdAt} ]
         // 또는 update 응답은 { comment: {...}, success } 형태일 수 있어 둘 다 흡수
         const c = raw?.comment || raw || {};
+        const rawId = c.id ?? c.commentId ?? c._id ?? null;
         return {
-            id: c.id ?? c.commentId ?? c._id ?? null,
+            id: rawId !== null && rawId !== undefined ? normalizeId(rawId) : null,
             content: c.content ?? c.body ?? "",
             createdAt: c.createdAt ?? c.created_at ?? null,
             authorId: c.authorId ?? c.author_id ?? null,
@@ -285,6 +303,16 @@ export default function Community() {
             // ignore
         }
     }, [likedPostIds]);
+
+    // persist optimistic like counts so they survive a full refresh
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            localStorage.setItem('community_optimistic_like_counts', JSON.stringify(optimisticLikeCountByPostId || {}));
+        } catch (e) {
+            // ignore
+        }
+    }, [optimisticLikeCountByPostId]);
 
     // close menus on outside click / ESC
     useEffect(() => {
@@ -490,6 +518,53 @@ export default function Community() {
     // =======================
     // 상세 글 + 댓글
     // =======================
+    // centralized error handler for comment like/unlike failures
+    const handleCommentLikeFailure = (e, commentId, wasLiked, newLiked) => {
+        try {
+            console.error('댓글 좋아요 토글 실패', e);
+        } catch (err) { /* ignore */ }
+
+        // Try to extract structured message/body for better UX
+        const body = e?.body || null;
+        const serverMsg = (body && typeof body === 'object' && (body.message || body.error)) ? (body.message || body.error) : null;
+        const textMsg = serverMsg || e?.message || String(e || '댓글 좋아요 처리 실패');
+
+        // duplicate-like/unlike detection
+        const msgLower = (textMsg || '').toString().toLowerCase();
+        const dupLike = newLiked && (msgLower.includes('이미') || msgLower.includes('already'));
+        const dupUnlike = !newLiked && (msgLower.includes('이미') || msgLower.includes('already'));
+
+        const sid = normalizeId(commentId);
+        if (dupLike) {
+            // server says it's already liked -> keep liked state
+            setLikedCommentIds((prev) => { const next = new Set(prev); next.add(sid); return next; });
+        } else if (dupUnlike) {
+            setLikedCommentIds((prev) => { const next = new Set(prev); next.delete(sid); return next; });
+        } else {
+            // rollback optimistic updates
+            setLikedCommentIds((prev) => {
+                const next = new Set(prev);
+                if (wasLiked) next.add(sid);
+                else next.delete(sid);
+                return next;
+            });
+            setComments((prev) => prev.map((c) => {
+                if (String(c.id) !== String(sid)) return c;
+                const current = typeof c.likeCount === 'number' ? c.likeCount : 0;
+                return { ...c, likeCount: Math.max(0, wasLiked ? current + 1 : current - 1) };
+            }));
+        }
+
+        // show a helpful alert (prefer server message); present friendly message for server errors
+        const statusCode = e?.status || (e?.body && e.body?.status) || null;
+        if (statusCode && Number(statusCode) >= 500) {
+            console.error('[Community] 서버(5xx) 오류 응답', { commentId, status: statusCode, error: e });
+            alert('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+        } else {
+            alert(serverMsg ? `${serverMsg}` : (e?.message || '댓글 좋아요 처리 실패'));
+        }
+    };
+
     const openDetail = async (postId) => {
         const token = getToken();
         if (token) setToken(token);
@@ -546,42 +621,75 @@ export default function Community() {
         if (!token) return alert('댓글 좋아요는 로그인 필요');
         if (!commentId) return;
 
-        const wasLiked = likedCommentIds.has(commentId);
+        const sid = normalizeId(commentId);
+        if (isPendingComment(sid)) return;
+
+        // [쉽게 수정된 부분] 바구니(Set)뿐만 아니라 실제 댓글 데이터의 좋아요 여부도 확인(peek)
+        const targetComment = comments.find((c) => String(c.id) === String(sid));
+        const wasLiked = likedCommentIds.has(sid) || (targetComment && targetComment.likedByMe === true);
         const newLiked = !wasLiked;
 
-        // optimistic UI update
+        // 이전 카운트 기억 (실패 시 복구용)
+        const prevCount = targetComment ? (typeof targetComment.likeCount === 'number' ? targetComment.likeCount : 0) : 0;
+
+        // 로딩 중 표시 (밀어넣기)
+        setPendingCommentLikes((prev) => new Set(prev).add(sid));
+
+        // 화면 먼저 바꾸기 (Optimistic Update)
         setLikedCommentIds((prev) => {
             const next = new Set(prev);
-            if (newLiked) next.add(commentId);
-            else next.delete(commentId);
+            newLiked ? next.add(sid) : next.delete(sid);
             return next;
         });
 
-        // optimistic count update (if likeCount exists)
         setComments((prev) => prev.map((c) => {
-            if (c.id !== commentId) return c;
+            if (String(c.id) !== String(sid)) return c;
             const current = typeof c.likeCount === 'number' ? c.likeCount : 0;
-            return { ...c, likeCount: Math.max(0, newLiked ? current + 1 : current - 1) };
+            return { ...c, likeCount: Math.max(0, newLiked ? current + 1 : current - 1), likedByMe: newLiked };
         }));
 
         try {
-            if (newLiked) await likeComment(commentId, token);
-            else await unlikeComment(commentId, token);
+            // 정확한 상태에 따라 좋아요(POST) 또는 취소(DELETE) 호출
+            const call = newLiked ? likeComment(commentId, token) : unlikeComment(commentId, token);
+            const resp = await call;
+
+            // 서버 에러(400 등)가 발생한 경우 처리
+            if (resp && resp.__error) {
+                // 이미 처리된 상태라면(400) 서버 상태에 맞춰 화면 강제 동기화
+                if (resp.status === 400) {
+                    if (selectedPost?.id) await refetchComments(selectedPost.id, token);
+                    return;
+                }
+                throw resp;
+            }
+
+            // 서버에서 최신 카운트를 주면 반영
+            const returnedCount = resp?.likeCount ?? resp?.count ?? null;
+            if (returnedCount !== null) {
+                setComments(prev => prev.map(c => String(c.id) === String(sid) ? { ...c, likeCount: Number(returnedCount) } : c));
+            }
+
         } catch (e) {
-            console.error('댓글 좋아요 토글 실패', e);
-            // rollback
+            console.error('좋아요 처리 실패', e);
+            // 에러 시 원래 상태로 롤백(pop)
             setLikedCommentIds((prev) => {
                 const next = new Set(prev);
-                if (wasLiked) next.add(commentId);
-                else next.delete(commentId);
+                wasLiked ? next.add(sid) : next.delete(sid);
                 return next;
             });
             setComments((prev) => prev.map((c) => {
-                if (c.id !== commentId) return c;
-                const current = typeof c.likeCount === 'number' ? c.likeCount : 0;
-                return { ...c, likeCount: Math.max(0, wasLiked ? current + 1 : current - 1) };
+                if (String(c.id) !== String(sid)) return c;
+                return { ...c, likeCount: prevCount, likedByMe: wasLiked };
             }));
-            alert(e?.message || '댓글 좋아요 처리 실패');
+
+            alert(e?.message || '좋아요 처리에 실패했습니다.');
+        } finally {
+            // 로딩 끝 (제거)
+            setPendingCommentLikes((prev) => {
+                const next = new Set(prev);
+                next.delete(sid);
+                return next;
+            });
         }
     };
 
@@ -878,7 +986,6 @@ export default function Community() {
                         {/* 채널 라인 */}
                         <div className="flex items-center justify-between text-sm mb-3">
                             <div />
-                            <button className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15">팔로우</button>
                         </div>
 
                         <h2 className="text-xl md:text-2xl font-bold leading-snug text-white">
@@ -906,6 +1013,7 @@ export default function Community() {
 
                                 {/* ⋯ 메뉴를 메타라인(🕒/👁️/💬) 우측 끝으로 이동 */}
                                 <div className="ml-auto relative" ref={postMenuRef}>
+                                    <button className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15">태그</button>
                                     <button
                                         type="button"
                                         className="px-2 py-1 rounded hover:bg-white/10"
@@ -991,7 +1099,7 @@ export default function Community() {
                 <div className="mt-6 px-1 border-t border-white/10">
                     <div className="px-4 py-3 flex items-center justify-between">
                         <div className="text-base font-semibold">댓글 {comments.length}</div>
-                        <div className="text-xs text-gray-400">추천순</div>
+                        <button className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/15">추천순</button>
                     </div>
                     <div className="px-4 py-4">
                         {/* 댓글 입력 (리스트와 동일한 가로폭: px-5 컨테이너 안에 배치) */}
@@ -1056,11 +1164,17 @@ export default function Community() {
                                                     <span className="inline-flex items-center gap-1">
                                                         <button
                                                             type="button"
-                                                            className="inline-flex items-center gap-1 hover:text-white"
-                                                            onClick={(e) => { e.stopPropagation(); toggleCommentLike(c.id); }}
+                                                            className={`inline-flex items-center gap-1 hover:text-white ${isPendingComment(c.id) ? 'opacity-60 pointer-events-none' : ''}`}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (isPendingComment(c.id)) return;
+                                                                toggleCommentLike(c.id);
+                                                            }}
                                                             aria-label="댓글 좋아요"
+                                                            aria-busy={isPendingComment(c.id) ? 'true' : 'false'}
+                                                            disabled={isPendingComment(c.id)}
                                                         >
-                                                            <span aria-hidden="true">{likedCommentIds.has(c.id) ? '❤️' : '🤍'}</span>
+                                                            <span aria-hidden="true">{isLikedComment(c.id) ? '❤️' : '🤍'}</span>
                                                             <span className="tabular-nums">{typeof c.likeCount === 'number' ? c.likeCount : 0}</span>
                                                         </button>
                                                     </span>

@@ -21,10 +21,13 @@ async function handleResponse(res, fallbackMessage) {
     try { json = text ? JSON.parse(text) : null; } catch (e) { /* not json */ }
 
     if (!res.ok) {
+        // Prefer structured message from JSON, otherwise use raw text or fallback
         const msg = (json && json.message) ? json.message : (text || fallbackMessage || `HTTP ${res.status}`);
-        const err = new Error(msg);
+        // Include HTTP status in the Error message to make debugging easier
+        const err = new Error(`${msg} (HTTP ${res.status})`);
         err.status = res.status;
-        err.body = json || text;
+        // Attach parsed JSON if available, otherwise raw text
+        err.body = json !== null ? json : text;
         throw err;
     }
 
@@ -85,19 +88,36 @@ export const getCommentsByUser = async (token) => {
 // 댓글 좋아요
 export const likeComment = async (commentId, token) => {
     if (!commentId) throw new Error('commentId가 필요합니다.');
-    const res = await fetch(`${API_LIKE_BASE}/${commentId}`, {
-        method: 'POST',
-        headers: makeHeaders(token),
-    });
-    return handleResponse(res, '댓글 좋아요 실패');
+    // debug aid: log minimal info (avoid printing token fully)
+    try {
+        console.debug('[api/comment] likeComment', { commentId, hasToken: Boolean(token) });
+    } catch (e) { /* ignore */ }
+    try {
+        const res = await fetch(`${API_LIKE_BASE}/${commentId}`, {
+            method: 'POST',
+            headers: makeHeaders(token),
+        });
+        return await handleResponse(res, '댓글 좋아요 실패');
+    } catch (err) {
+        console.error('[api/comment] likeComment error', { commentId, err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '댓글 좋아요 실패' };
+    }
 };
 
 // 댓글 좋아요 취소
 export const unlikeComment = async (commentId, token) => {
     if (!commentId) throw new Error('commentId가 필요합니다.');
-    const res = await fetch(`${API_LIKE_BASE}/${commentId}`, {
-        method: 'DELETE',
-        headers: makeHeaders(token),
-    });
-    return handleResponse(res, '댓글 좋아요 취소 실패');
+    try {
+        console.debug('[api/comment] unlikeComment', { commentId, hasToken: Boolean(token) });
+    } catch (e) { /* ignore */ }
+    try {
+        const res = await fetch(`${API_LIKE_BASE}/${commentId}`, {
+            method: 'DELETE',
+            headers: makeHeaders(token),
+        });
+        return await handleResponse(res, '댓글 좋아요 취소 실패');
+    } catch (err) {
+        console.error('[api/comment] unlikeComment error', { commentId, err });
+        return { __error: true, status: err?.status || null, body: err?.body || null, message: err?.message || '댓글 좋아요 취소 실패' };
+    }
 };
