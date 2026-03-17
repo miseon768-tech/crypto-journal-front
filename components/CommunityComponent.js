@@ -157,6 +157,52 @@ export default function Community() {
         };
     };
 
+    // Compact sort control: single button that shows a vertical dropdown under it when opened
+    const CompactSort = ({ listMode, setListMode }) => {
+        const [open, setOpen] = useState(false);
+        const ref = useRef(null);
+
+        useEffect(() => {
+            const onDocClick = (e) => {
+                if (!ref.current) return;
+                if (!ref.current.contains(e.target)) setOpen(false);
+            };
+            document.addEventListener('mousedown', onDocClick);
+            return () => document.removeEventListener('mousedown', onDocClick);
+        }, []);
+
+        const handleSelect = (mode) => {
+            try { setListMode(mode); } catch (e) { /* ignore */ }
+            setOpen(false);
+        };
+
+        return (
+            <div className="relative inline-block" ref={ref}>
+                <button
+                    className={`px-3 py-2 rounded text-sm ${open ? 'bg-white/20' : (listMode === 'latest' ? 'bg-indigo-600' : 'bg-white/10')}`}
+                    onClick={() => setOpen((v) => !v)}
+                    aria-haspopup="true"
+                    aria-expanded={open}
+                >
+                    최신순
+                </button>
+
+                {open && (
+                    <div className="absolute left-0 mt-2 w-40 bg-gray-800 border border-white/10 rounded shadow-lg z-20 flex flex-col">
+                        <button
+                            className={`text-left px-3 py-2 hover:bg-white/5 ${listMode === 'likes' ? 'bg-indigo-600' : ''}`}
+                            onClick={() => handleSelect('likes')}
+                        >추천순</button>
+                        <button
+                            className={`text-left px-3 py-2 hover:bg-white/5 ${listMode === 'latest' ? 'bg-indigo-600' : ''}`}
+                            onClick={() => handleSelect('latest')}
+                        >최신순</button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     const extractCommentsArray = (rawComments) => {
         if (Array.isArray(rawComments)) return rawComments;
         if (rawComments?.comment_list && Array.isArray(rawComments.comment_list)) return rawComments.comment_list;
@@ -872,20 +918,18 @@ export default function Community() {
                     </div>
                 </div>
 
-                {/* 목록 토글: 전체 / 최신 / 좋아요많음 */}
-                <div className="mb-4 flex gap-2">
+                {/* compact 목록 토글: 기본은 최신순 버튼만 보이고 클릭하면 추천순/최신순 옵션이 나타납니다 */}
+                <div className="mb-4 flex gap-2 items-center justify-end">
                     <button
                         className={`px-3 py-2 rounded text-sm ${listMode === 'all' ? 'bg-indigo-600' : 'bg-white/10'}`}
                         onClick={() => { setListMode('all'); fetchPosts('all'); }}
                     >전체</button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${listMode === 'latest' ? 'bg-indigo-600' : 'bg-white/10'}`}
-                        onClick={() => { setListMode('latest'); fetchPosts('latest'); }}
-                    >최신</button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${listMode === 'likes' ? 'bg-indigo-600' : 'bg-white/10'}`}
-                        onClick={() => { setListMode('likes'); fetchPosts('likes'); }}
-                    >좋아요 많은 글</button>
+
+                    {/* compact sort 버튼 */}
+                    <CompactSort
+                        listMode={listMode}
+                        setListMode={(mode) => { setListMode(mode); fetchPosts(mode); }}
+                    />
                 </div>
 
 
