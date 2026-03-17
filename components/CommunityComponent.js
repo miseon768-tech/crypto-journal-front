@@ -11,9 +11,9 @@ import {
     getMyLikedPosts,
     saveDraft,
     getDrafts,
-    updatePost,
-    getPostLikeCount,
     increaseViewCount,
+    getPostsByLatest,
+    getPostsByLikes,
 } from "../api/post";
 
 import {
@@ -21,7 +21,6 @@ import {
     updateComment,
     deleteComment,
     getCommentsByPost,
-    getCommentsByUser,
     likeComment,
     unlikeComment,
 } from "../api/comment";
@@ -94,6 +93,8 @@ export default function Community() {
     const [searchKeyword, setSearchKeyword] = useState("");
 
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(null);
+    const [listMode, setListMode] = useState('all'); // all | latest | likes | my | liked | search | draft
 
     const [isEditing, setIsEditing] = useState(false);
     const [showDebug, setShowDebug] = useState(false);
@@ -241,9 +242,12 @@ export default function Community() {
         if (token) setToken(token);
 
         try {
+            setFetchError(null);
             let data = [];
             switch (type) {
                 case "all": data = await getPosts(token); break;
+                case "latest": data = await getPostsByLatest(token); break;
+                case "likes": data = await getPostsByLikes(token); break;
                 case "my": data = await getMyPosts(token); break;
                 case "liked": data = await getMyLikedPosts(token); break;
                 case "search": data = keyword.trim() ? await searchPosts(keyword, token) : []; break;
@@ -288,6 +292,8 @@ export default function Community() {
             setPosts(list.map(normalizePost));
         } catch (e) {
             console.error("게시물 불러오기 실패", e);
+            // Surface fetch error to UI so user can see why no posts are shown
+            setFetchError(e?.message ? e : { message: e });
             const status = e?.status || (e?.message && e.message.includes('401') ? 401 : (e?.message && e.message.includes('403') ? 403 : null));
             if ((status === 401 || status === 403) && token) {
                 console.warn('[Community] 토큰 검증 실패, 익명으로 재시도합니다.');
@@ -803,8 +809,7 @@ export default function Community() {
         if (posts.length === 0 && !loading) {
             const dbgToken = getToken();
             const shortToken = dbgToken ? `${dbgToken.substring(0, 20)}...${dbgToken.substring(dbgToken.length - 10)}` : null;
-
-            const handleRetryClick = () => fetchPosts();
+            const handleRetryClick = () => fetchPosts(listMode);
             const handleCopyToken = async () => {
                 const t = dbgToken || localStorage.getItem('token') || '';
                 if (!navigator.clipboard) {
@@ -819,7 +824,15 @@ export default function Community() {
                 <div className="p-0 text-white max-w-3xl mx-auto">
                     <div className="mb-6">
                         <h1 className="text-2xl font-bold text-white">커뮤니티</h1>
-                        <p className="text-sm text-gray-300 mt-2">게시물이 없습니다. 글을 작성해보세요.</p>
+                        {fetchError ? (
+                            <>
+                                <p className="text-sm text-red-300 mt-2">게시물을 불러오는 중 오류가 발생했습니다.</p>
+                                <p className="text-sm text-gray-300 mt-2">원인: {String(fetchError.message || fetchError)}</p>
+                                <p className="text-xs text-gray-400 mt-1">백엔드가 실행 중인지, 환경변수(NEXT_PUBLIC_BACKEND_URL)가 올바른지 확인하세요.</p>
+                            </>
+                        ) : (
+                            <p className="text-sm text-gray-300 mt-2">게시물이 없습니다. 글을 작성해보세요.</p>
+                        )}
                     </div>
 
                     <div className="flex gap-2 mb-4">
@@ -831,16 +844,11 @@ export default function Community() {
                         </button>
                     </div>
 
-                    {showDebug && (
-                        <div className="bg-white/5 p-4 rounded mb-4">
-                            <p className="text-sm mb-2">디버그 토큰: <span className="font-mono break-words">{shortToken || '없음'}</span></p>
-                            <div className="flex gap-2">
-                                <button onClick={handleRetryClick} className="px-4 py-2 bg-blue-600 rounded">재시도</button>
-                                <button onClick={handleCopyToken} className="px-4 py-2 bg-gray-600 rounded">토큰 복사</button>
-                                <button onClick={handleLogout} className="px-4 py-2 bg-red-600 rounded">로그아웃</button>
-                            </div>
-                        </div>
-                    )}
+                    <div className="flex gap-2">
+                        <button onClick={handleRetryClick} className="px-4 py-2 bg-blue-600 rounded">재시도</button>
+                        <button onClick={handleCopyToken} className="px-4 py-2 bg-gray-600 rounded">토큰 복사</button>
+                        <button onClick={handleLogout} className="px-4 py-2 bg-red-600 rounded">로그아웃</button>
+                    </div>
                 </div>
             );
         }
@@ -862,6 +870,22 @@ export default function Community() {
                             검색
                         </button>
                     </div>
+                </div>
+
+                {/* 목록 토글: 전체 / 최신 / 좋아요많음 */}
+                <div className="mb-4 flex gap-2">
+                    <button
+                        className={`px-3 py-2 rounded text-sm ${listMode === 'all' ? 'bg-indigo-600' : 'bg-white/10'}`}
+                        onClick={() => { setListMode('all'); fetchPosts('all'); }}
+                    >전체</button>
+                    <button
+                        className={`px-3 py-2 rounded text-sm ${listMode === 'latest' ? 'bg-indigo-600' : 'bg-white/10'}`}
+                        onClick={() => { setListMode('latest'); fetchPosts('latest'); }}
+                    >최신</button>
+                    <button
+                        className={`px-3 py-2 rounded text-sm ${listMode === 'likes' ? 'bg-indigo-600' : 'bg-white/10'}`}
+                        onClick={() => { setListMode('likes'); fetchPosts('likes'); }}
+                    >좋아요 많은 글</button>
                 </div>
 
 
