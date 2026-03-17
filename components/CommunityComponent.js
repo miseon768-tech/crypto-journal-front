@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from "react";
+import { useRouter } from "next/router";
 import {
     getPosts,
     getPostById,

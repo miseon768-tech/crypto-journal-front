@@ -16,7 +16,6 @@ export default function Dashboard() {
     const [realtimeKey, setRealtimeKey] = useState(0);
     const [communityKey, setCommunityKey] = useState(0);
 
-    // 쿼리 파라미터(tab)를 읽어 탭 설정
     useEffect(() => {
         if (!queryTab) return;
         const allowed = ["wallet", "realtime", "community"];
@@ -31,10 +30,9 @@ export default function Dashboard() {
     useEffect(() => {
         const fetchPairs = async () => {
             try {
-                const data = await getAllMarkets(router); // router 전달!
+                const data = await getAllMarkets(router);
                 console.log("마켓 전체 응답:", data);
 
-                // 백엔드/환경에 따라 tradingPairs 또는 trading_pairs로 올 수 있어 둘 다 지원
                 setTradingPairs(data?.tradingPairs || data?.trading_pairs || []);
             } catch (err) {
                 console.error("Failed to fetch trading pairs:", err);
@@ -50,7 +48,6 @@ export default function Dashboard() {
 
     return (
         <div className="p-10">
-            {/* ===== 카드 선택 영역 ===== */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-6">
                 <div
                     onClick={() => { openTab("wallet"); setWalletKey(k => k + 1); }}
@@ -72,7 +69,6 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            {/* ===== 내용 영역 ===== */}
             <div className="bg-white/10 p-6 rounded-2xl backdrop-blur-md min-h-[200px] overflow-visible">
                 {!activeTab && <div>카드를 클릭하면 내용이 여기에 표시됩니다.</div>}
 

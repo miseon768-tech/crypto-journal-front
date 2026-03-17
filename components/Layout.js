@@ -8,17 +8,17 @@ import {
     changePassword,
     deleteMember,
 } from "../api/member";
+import { getMyLikedPosts } from "../api/post";
 
 export default function Layout({ children }) {
     const router = useRouter();
 
     const [menuOpen, setMenuOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState("profile"); // profile | password | preferences
+    const [activeItem, setActiveItem] = useState(null); // 'profile'|'password'|'preferences'|'liked' | null
     const menuRef = useRef(null);
     const buttonRef = useRef(null);
 
-    // fixed dropdown position
-    const [dropdownStyle, setDropdownStyle] = useState({ top: 0, left: 0, width: 384 });
+    const [dropdownStyle, setDropdownStyle] = useState({ top: 0, left: 0, width: 360 });
 
     // profile state
     const [email, setEmail] = useState("");
@@ -27,30 +27,49 @@ export default function Layout({ children }) {
     const [bio, setBio] = useState("");
     const [loadingProfile, setLoadingProfile] = useState(false);
 
+    // liked posts state
+    const [likedPosts, setLikedPosts] = useState([]);
+    const [loadingLiked, setLoadingLiked] = useState(false);
+
     // password state
     const [currentPw, setCurrentPw] = useState("");
     const [newPw, setNewPw] = useState("");
     const [confirmPw, setConfirmPw] = useState("");
 
-    // preferences state
+    // preferences
     const [notifyEmail, setNotifyEmail] = useState(true);
     const [darkMode, setDarkMode] = useState(true);
+    // header display nickname
+    const [headerNickname, setHeaderNickname] = useState("");
 
-    // outside click / ESC to close menu
+    const closeMenu = () => {
+        setMenuOpen(false);
+        setActiveItem(null);
+    };
+    const toggleMenu = () => {
+        setMenuOpen((s) => {
+            const next = !s;
+            if (next) setActiveItem(null);
+            return next;
+        });
+    };
+
+    const handleLogout = () => {
+        try { removeToken(); } catch (e) {}
+        closeMenu();
+        router.push("/login");
+    };
+
+    // outside click / ESC
     useEffect(() => {
         function onDocClick(e) {
             if (!menuOpen) return;
-            if (
-                menuRef.current &&
-                !menuRef.current.contains(e.target) &&
-                buttonRef.current &&
-                !buttonRef.current.contains(e.target)
-            ) {
-                setMenuOpen(false);
+            if (menuRef.current && !menuRef.current.contains(e.target) && buttonRef.current && !buttonRef.current.contains(e.target)) {
+                closeMenu();
             }
         }
         function onKey(e) {
-            if (e.key === "Escape") setMenuOpen(false);
+            if (e.key === "Escape") closeMenu();
         }
         document.addEventListener("mousedown", onDocClick);
         document.addEventListener("keydown", onKey);
@@ -60,9 +79,9 @@ export default function Layout({ children }) {
         };
     }, [menuOpen]);
 
-    // compute dropdown position relative to button (fixed)
+    // position dropdown relative to button
     useEffect(() => {
-        const DROPDOWN_WIDTH = 384; // w-96
+        const DROPDOWN_WIDTH = 360;
         function updatePosition() {
             const btn = buttonRef.current;
             if (!btn) return;
@@ -73,10 +92,9 @@ export default function Layout({ children }) {
             const maxLeft = window.innerWidth - DROPDOWN_WIDTH - 8;
             if (left < minLeft) left = minLeft;
             if (left > maxLeft) left = maxLeft;
-            const top = Math.round(rect.bottom + scrollY + 8); // 8px gap
+            const top = Math.round(rect.bottom + scrollY + 8);
             setDropdownStyle({ top, left, width: DROPDOWN_WIDTH });
         }
-
         if (menuOpen) {
             updatePosition();
             window.addEventListener("resize", updatePosition);
@@ -88,53 +106,83 @@ export default function Layout({ children }) {
         }
     }, [menuOpen]);
 
-    const handleLogout = () => {
-        try { removeToken(); } catch (e) {}
-        setMenuOpen(false);
-        router.push("/login");
-    };
-
-    // load profile when menu opens and profile tab active
+    // load profile when profile accordion opened
     useEffect(() => {
         if (!menuOpen) return;
-        if (activeTab !== "profile") return;
-
+        if (activeItem !== "profile") return;
         let mounted = true;
-        const load = async () => {
+        (async () => {
             setLoadingProfile(true);
             try {
                 const token = getStoredToken();
-                if (!token) {
-                    // not logged in, clear fields
-                    setEmail("");
-                    setNickname("");
-                    setDisplayName("");
-                    setBio("");
-                    return;
-                }
+                if (!token) { setEmail(""); setNickname(""); setDisplayName(""); setBio(""); return; }
                 const data = await getMyInfo(token);
-                // accommodate possible response shapes
                 const user = data?.member ?? data?.data ?? data ?? {};
                 if (!mounted) return;
                 setEmail(user.email ?? "");
                 setNickname(user.nickname ?? user.nick ?? "");
                 setDisplayName(user.displayName ?? user.name ?? "");
                 setBio(user.bio ?? user.introduce ?? "");
-                // preferences if provided
                 if (user.notifyEmail !== undefined) setNotifyEmail(Boolean(user.notifyEmail));
                 if (user.darkMode !== undefined) setDarkMode(Boolean(user.darkMode));
             } catch (err) {
                 console.error("프로필 로드 실패", err);
-                // leave existing values (or clear)
             } finally {
                 if (mounted) setLoadingProfile(false);
             }
-        };
-        load();
+        })();
         return () => { mounted = false; };
-    }, [menuOpen, activeTab]);
+    }, [menuOpen, activeItem]);
 
-    // save profile -> call updateMember(token, data)
+    // load header nickname on mount (if logged in)
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const token = getStoredToken();
+                if (!token) return;
+                const data = await getMyInfo(token);
+                if (!mounted) return;
+                const user = data?.member ?? data?.data ?? data ?? {};
+                const nick = user.nickname ?? user.nick ?? user.displayName ?? "";
+                if (nick) setHeaderNickname(nick);
+            } catch (e) {
+                // ignore
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
+
+    // load liked posts when liked accordion opened
+    useEffect(() => {
+        if (!menuOpen) return;
+        if (activeItem !== "liked") return;
+        let mounted = true;
+        (async () => {
+            setLoadingLiked(true);
+            try {
+                const token = getStoredToken();
+                if (!token) { setLikedPosts([]); return; }
+                const data = await getMyLikedPosts(token);
+                if (!mounted) return;
+                let list;
+                if (Array.isArray(data)) list = data;
+                else if (data?.posts && Array.isArray(data.posts)) list = data.posts;
+                else if (data?.data && Array.isArray(data.data)) list = data.data;
+                else if (data?.postList && Array.isArray(data.postList)) list = data.postList;
+                else list = (data && typeof data === 'object') ? Object.values(data).find(v => Array.isArray(v)) || [] : [];
+                setLikedPosts(list.map(item => item?.post ?? item));
+            } catch (err) {
+                console.error('내 좋아요 글 로드 실패', err);
+                setLikedPosts([]);
+            } finally {
+                if (mounted) setLoadingLiked(false);
+            }
+        })();
+        return () => { mounted = false; };
+    }, [menuOpen, activeItem]);
+
+    // save profile
     const saveProfile = async (e) => {
         e.preventDefault();
         const emailTrim = (email || "").trim();
@@ -143,18 +191,15 @@ export default function Layout({ children }) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(emailTrim)) return alert("유효한 이메일을 입력하세요.");
         if (!nicknameTrim) return alert("닉네임을 입력하세요.");
-
         try {
             const token = getStoredToken();
             if (!token) throw new Error("로그인이 필요합니다.");
-            const payload = {
-                email: emailTrim,
-                nickname: nicknameTrim,
-                displayName,
-                bio,
-            };
+            const payload = { email: emailTrim, nickname: nicknameTrim, displayName, bio };
             await updateMember(token, payload);
             alert("프로필이 저장되었습니다.");
+            // update header nickname if changed
+            if (nickname) setHeaderNickname(nickname);
+            setActiveItem(null);
             setMenuOpen(false);
         } catch (err) {
             console.error("프로필 저장 실패", err);
@@ -162,23 +207,19 @@ export default function Layout({ children }) {
         }
     };
 
-    // change password -> call changePassword(token, data)
+    // change password
     const changePasswordHandler = async (e) => {
         e.preventDefault();
         if (!newPw) return alert("새 비밀번호를 입력하세요");
         if (newPw !== confirmPw) return alert("새 비밀번호와 확인이 다릅니다");
-
         try {
             const token = getStoredToken();
             if (!token) throw new Error("로그인이 필요합니다.");
-            const payload = {
-                oldPassword: currentPw,
-                newPassword: newPw,
-                newPasswordConfirm: confirmPw,
-            };
+            const payload = { oldPassword: currentPw, newPassword: newPw, newPasswordConfirm: confirmPw };
             await changePassword(token, payload);
             alert("비밀번호가 변경되었습니다.");
             setCurrentPw(""); setNewPw(""); setConfirmPw("");
+            setActiveItem(null);
             setMenuOpen(false);
         } catch (err) {
             console.error("비밀번호 변경 실패", err);
@@ -186,7 +227,7 @@ export default function Layout({ children }) {
         }
     };
 
-    // delete account (optional) - place in preferences if needed
+    // delete account
     const handleDeleteAccount = async () => {
         if (!confirm("정말로 탈퇴하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
         const pwd = prompt("탈퇴하려면 비밀번호를 입력하세요");
@@ -204,216 +245,147 @@ export default function Layout({ children }) {
         }
     };
 
-    // preferences save (placeholder -> stays same look but hover shows color)
-    const savePreferences = (e) => {
-        e.preventDefault();
-        // TODO: implement preferences API if available
-        alert("설정이 저장되었습니다 (예시)");
-        setMenuOpen(false);
-    };
+    const savePreferences = (e) => { e.preventDefault(); alert("설정이 저장되었습니다 (예시)"); setActiveItem(null); setMenuOpen(false); };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
             {/* Header */}
             <header className="border-b border-white/10 bg-black/30 backdrop-blur-md">
                 <div className="max-w-6xl mx-auto px-10 py-4 flex justify-between items-center">
-                    <h1
-                        onClick={() => router.push("/")}
-                        className="text-lg font-semibold tracking-wide cursor-pointer hover:text-gray-300 transition"
-                    >
-                        Crypto Journal
-                    </h1>
-
-                    {/* 오른쪽: 내 정보 드롭다운 + 로그아웃 버튼 */}
+                    <h1 onClick={() => router.push("/")} className="text-lg font-semibold tracking-wide cursor-pointer hover:text-gray-300 transition">Crypto Journal</h1>
                     <div className="flex items-center gap-4">
+                        <div className="text-sm text-white/80 mr-2">{headerNickname ? `${headerNickname} 님` : null}</div>
                         <div>
-                            <button
-                                ref={buttonRef}
-                                onClick={() => setMenuOpen((s) => !s)}
-                                aria-haspopup="true"
-                                aria-expanded={menuOpen}
-                                className="px-4 py-2 bg-white/5 rounded-lg hover:bg-white/10 transition"
-                            >
-                                내 정보
-                            </button>
+                            <button ref={buttonRef} onClick={toggleMenu} aria-haspopup="true" aria-expanded={menuOpen} className="px-4 py-2 bg-white/5 rounded-lg hover:bg-white/10 transition">내 정보</button>
                         </div>
-
-                        {/* logout */}
-                        <button
-                            onClick={handleLogout}
-                            className="px-4 py-2 bg-white/5 rounded-lg hover:bg-white/10 transition"
-                        >
-                            로그아웃
-                        </button>
+                        <button onClick={handleLogout} className="px-4 py-2 bg-white/5 rounded-lg hover:bg-white/10 transition">로그아웃</button>
                     </div>
                 </div>
             </header>
 
-            {/* Fixed dropdown (renders above content, profile/password/preferences inside) */}
             {menuOpen && (
-                <div
-                    ref={menuRef}
-                    style={{ top: dropdownStyle.top, left: dropdownStyle.left, width: dropdownStyle.width }}
-                    className="fixed bg-[#0b0f1a]/95 border border-white/10 rounded-lg shadow-2xl z-[9999] max-h-[70vh] overflow-y-auto"
-                >
-                    {/* tab nav */}
-                    <div className="flex gap-1 p-2">
-                        <button
-                            onClick={() => setActiveTab("profile")}
-                            className={`flex-1 px-3 py-2 rounded ${activeTab === "profile" ? "bg-indigo-600" : "bg-white/5"}`}
-                        >
-                            정보 수정
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("password")}
-                            className={`flex-1 px-3 py-2 rounded ${activeTab === "password" ? "bg-indigo-600" : "bg-white/5"}`}
-                        >
-                            비밀번호
-                        </button>
-                        {/*<button*/}
-                        {/*    onClick={() => setActiveTab("preferences")}*/}
-                        {/*    className={`flex-1 px-3 py-2 rounded ${activeTab === "preferences" ? "bg-indigo-600" : "bg-white/5"}`}*/}
-                        {/*>*/}
-                        {/*    환경설정*/}
-                        {/*</button>*/}
-                    </div>
-
-                    <div className="p-4 border-t border-white/5">
-                        {activeTab === "profile" && (
-                            <form onSubmit={saveProfile} className="space-y-3">
-                                {loadingProfile ? (
-                                    <div className="text-sm text-white/60">불러오는 중...</div>
-                                ) : (
-                                    <>
-                                        <div>
-                                            <label className="block text-xs text-white/70 mb-1">이메일</label>
-                                            <input
-                                                value={email}
-                                                onChange={(e) => setEmail(e.target.value)}
-                                                className="w-full px-3 py-2 rounded bg-gray-800"
-                                                placeholder="email@example.com"
-                                                type="email"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs text-white/70 mb-1">닉네임</label>
-                                            <input
-                                                value={nickname}
-                                                onChange={(e) => setNickname(e.target.value)}
-                                                className="w-full px-3 py-2 rounded bg-gray-800"
-                                                placeholder="닉네임"
-                                                type="text"
-                                            />
-                                        </div>
-
-                                        <div className="flex gap-2 justify-end">
-                                            <button
-                                                type="button"
-                                                onClick={() => setMenuOpen(false)}
-                                                className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                            >
-                                                취소
-                                            </button>
-                                            <button
-                                                type="submit"
-                                                className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                            >
-                                                저장
-                                            </button>
-                                        </div>
-                                    </>
+                <div ref={menuRef} style={{ top: dropdownStyle.top, left: dropdownStyle.left, width: dropdownStyle.width }} className="fixed bg-[#0b0f1a]/95 border border-white/10 rounded-lg shadow-2xl z-[9999] max-h-[70vh] overflow-y-auto">
+                    <div className="p-2">
+                        {/* Accordion list: clicking an item toggles its content shown right below the item */}
+                        <div className="flex flex-col">
+                            <div>
+                                <button onClick={() => setActiveItem(activeItem === 'profile' ? null : 'profile')} className={`w-full text-left px-4 py-3 rounded ${activeItem === 'profile' ? 'bg-white/6' : 'bg-white/5'} hover:bg-white/5`}>정보 수정</button>
+                                {activeItem === 'profile' && (
+                                    <div className="p-4 border-l border-white/5 bg-black/80">
+                                        <form onSubmit={saveProfile} className="space-y-3">
+                                            {loadingProfile ? <div className="text-sm text-white/60">로딩 중...</div> : (
+                                                <>
+                                                    <div>
+                                                        <label className="block text-xs text-white/70 mb-1">이메일</label>
+                                                        <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" placeholder="email@example.com" type="email" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs text-white/70 mb-1">닉네임</label>
+                                                        <input value={nickname} onChange={(e) => setNickname(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" placeholder="닉네임" type="text" />
+                                                    </div>
+                                                    <div className="flex gap-2 justify-end">
+                                                        <button type="button" onClick={() => setActiveItem(null)} className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">취소</button>
+                                                        <button type="submit" className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">저장</button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </form>
+                                    </div>
                                 )}
-                            </form>
-                        )}
+                            </div>
 
-                        {activeTab === "password" && (
-                            <form onSubmit={changePasswordHandler} className="space-y-3">
-                                <div>
-                                    <label className="block text-xs text-white/70 mb-1">현재 비밀번호</label>
-                                    <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs text-white/70 mb-1">새 비밀번호</label>
-                                    <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs text-white/70 mb-1">새 비밀번호 확인</label>
-                                    <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" />
-                                </div>
-                                <div className="flex gap-2 justify-end">
-                                    <button
-                                        type="button"
-                                        onClick={() => setMenuOpen(false)}
-                                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    >
-                                        취소
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    >
-                                        변경
-                                    </button>
-                                </div>
-                            </form>
-                        )}
+                            <div>
+                                <button onClick={() => setActiveItem(activeItem === 'password' ? null : 'password')} className={`w-full text-left px-4 py-3 rounded ${activeItem === 'password' ? 'bg-white/6' : 'bg-white/5'} hover:bg-white/5`}>비밀번호 변경</button>
+                                {activeItem === 'password' && (
+                                    <div className="p-4 border-l border-white/5 bg-black/80">
+                                        <form onSubmit={changePasswordHandler} className="space-y-3">
+                                            <div>
+                                                <label className="block text-xs text-white/70 mb-1">현재 비밀번호</label>
+                                                <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-white/70 mb-1">새 비밀번호</label>
+                                                <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-white/70 mb-1">새 비밀번호 확인</label>
+                                                <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" />
+                                            </div>
+                                            <div className="flex gap-2 justify-end">
+                                                <button type="button" onClick={() => setActiveItem(null)} className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">취소</button>
+                                                <button type="submit" className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">변경</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                )}
+                            </div>
 
-                        {activeTab === "preferences" && (
-                            <form onSubmit={savePreferences} className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-sm font-medium">이메일 알림</div>
-                                        <div className="text-xs text-white/60">새 글·댓글 알림 수신</div>
+                            <div>
+                                <button onClick={() => setActiveItem(activeItem === 'preferences' ? null : 'preferences')} className={`w-full text-left px-4 py-3 rounded ${activeItem === 'preferences' ? 'bg-white/6' : 'bg-white/5'} hover:bg-white/5`}>설정</button>
+                                {activeItem === 'preferences' && (
+                                    <div className="p-4 border-l border-white/5 bg-black/80">
+                                        <form onSubmit={savePreferences} className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <div className="text-sm font-medium">이메일 알림</div>
+                                                    <div className="text-xs text-white/60">새 글·댓글 알림 수신</div>
+                                                </div>
+                                                <input type="checkbox" checked={notifyEmail} onChange={(e) => setNotifyEmail(e.target.checked)} className="h-5 w-5" />
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <div className="text-sm font-medium">다크 모드</div>
+                                                    <div className="text-xs text-white/60">UI 테마</div>
+                                                </div>
+                                                <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} className="h-5 w-5" />
+                                            </div>
+                                            <div className="flex gap-2 justify-between">
+                                                <div>
+                                                    <button type="button" onClick={handleDeleteAccount} className="px-3 py-1 bg-white/5 text-white/60 rounded hover:bg-red-600">회원 탈퇴</button>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button type="button" onClick={() => setActiveItem(null)} className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">취소</button>
+                                                    <button type="submit" className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">저장</button>
+                                                </div>
+                                            </div>
+                                        </form>
                                     </div>
-                                    <input type="checkbox" checked={notifyEmail} onChange={(e) => setNotifyEmail(e.target.checked)} className="h-5 w-5" />
-                                </div>
+                                )}
+                            </div>
 
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-sm font-medium">다크 모드</div>
-                                        <div className="text-xs text-white/60">UI 테마</div>
+                            <div>
+                                <button onClick={() => setActiveItem(activeItem === 'liked' ? null : 'liked')} className={`w-full text-left px-4 py-3 rounded ${activeItem === 'liked' ? 'bg-white/6' : 'bg-white/5'} hover:bg-white/5`}>좋아요 한 글</button>
+                                {activeItem === 'liked' && (
+                                    <div className="p-4 border-l border-white/5 bg-black/80">
+                                        {loadingLiked ? <div className="text-sm text-white/60">로딩 중...</div> : (
+                                            <div className="space-y-2 max-h-[45vh] overflow-y-auto">
+                                                {likedPosts.length === 0 ? <div className="text-sm text-white/60">좋아요한 글이 없습니다.</div> : (
+                                                    likedPosts.map((p, idx) => {
+                                                        const id = p?.id ?? p?.postId ?? p?.post_id ?? p?._id ?? (p?.post && (p.post.id ?? p.post.postId));
+                                                        const title = p?.title ?? p?.subject ?? (p?.post && (p.post.title ?? p.post.subject)) ?? '제목 없음';
+                                                        return (
+                                                            <div key={idx} className="p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer" onClick={() => { try { setActiveItem(null); } catch (e) {} router.push({ pathname: '/dashboard', query: { tab: 'community', postId: id } }, undefined, { shallow: true }); }}>
+                                                                <div className="text-sm">{title}</div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        )}
+                                        <div className="flex gap-2 justify-end mt-2">
+                                            <button type="button" onClick={() => setActiveItem(null)} className="px-3 py-1 bg-white/5 rounded hover:bg-indigo-600">닫기</button>
+                                        </div>
                                     </div>
-                                    <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} className="h-5 w-5" />
-                                </div>
-
-                                <div className="flex gap-2 justify-between">
-                                    <div>
-                                        <button
-                                            type="button"
-                                            onClick={handleDeleteAccount}
-                                            className="px-3 py-1 bg-white/5 text-white/60 rounded transition-colors hover:bg-red-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                                        >
-                                            회원 탈퇴
-                                        </button>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setMenuOpen(false)}
-                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        >
-                                            취소
-                                        </button>
-                                        <button
-                                            type="submit"
-                                            className="px-3 py-1 bg-white/5 rounded transition-colors hover:bg-indigo-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        >
-                                            저장
-                                        </button>
-                                    </div>
-                                </div>
-                            </form>
-                        )}
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
 
             {/* Content */}
             <main className="p-10">
-                <div className="max-w-6xl mx-auto">
-                    {children}
-                </div>
+                <div className="max-w-6xl mx-auto">{children}</div>
             </main>
         </div>
     );
