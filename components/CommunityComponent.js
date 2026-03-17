@@ -176,7 +176,7 @@ export default function Community() {
             setOpen(false);
         };
 
-        const label = listMode === 'likes' ? '추천순' : (listMode === 'latest' ? '최신순' : (listMode === 'all' ? '전체' : '정렬'));
+        const label = listMode === 'likes' ? '추천순' : (listMode === 'latest' ? '최신순' : (listMode === 'all' ? '최신순' : '정렬'));
 
         return (
             <div className="relative inline-block" ref={ref}>
