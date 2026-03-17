@@ -217,6 +217,15 @@ export default function Community() {
         const list = extractCommentsArray(rawComments);
         const normalized = list.map(normalizeComment);
         setComments(normalized);
+        // Ensure selectedPost shows updated comment count in detail view
+        try {
+            setSelectedPost(prev => {
+                if (!prev || prev.id !== postId) return prev;
+                return { ...prev, commentCount: normalized.length };
+            });
+        } catch (e) {
+            // ignore
+        }
         // If server provides per-comment liked flag, merge it into likedCommentIds so UI reflects server truth
         try {
             const newlyLiked = new Set(likedCommentIds);
@@ -823,6 +832,11 @@ export default function Community() {
                         if (!(fresh && fresh.__error)) {
                             const list = extractCommentsArray(fresh).map(normalizeComment);
                             setComments(list);
+                            // sync selectedPost commentCount as well
+                            setSelectedPost(prev => {
+                                if (!prev || prev.id !== selectedPost.id) return prev;
+                                return { ...prev, commentCount: list.length };
+                            });
                         } else {
                             // leave optimistic removal in place
                         }
