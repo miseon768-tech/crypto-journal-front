@@ -30,6 +30,7 @@ import { useToken } from "../stores/account-store";
 import { getStoredToken } from "../api/member";
 
 export default function Community() {
+    const router = useRouter();
     const { token: globalToken, setToken } = useToken();
 
     const [mode, setMode] = useState("list"); // list / write / detail
@@ -646,6 +647,24 @@ export default function Community() {
             setMode("detail");
         } catch (e) { console.error("상세 글 불러오기 실패", e); alert(e?.message || '상세 불러오기 실패'); }
     };
+
+    // If a postId is present in the URL query (e.g. /dashboard?tab=community&postId=123),
+    // open that post's detail automatically. This allows external links (like the
+    // header "좋아요 한 글" list) to navigate to a specific post.
+    useEffect(() => {
+        try {
+            const q = router.query?.postId;
+            if (!q) return;
+            const postId = Array.isArray(q) ? q[0] : q;
+            // avoid refetching if already showing the same post
+            if (selectedPost && String(selectedPost.id) === String(postId)) return;
+            // openDetail will set mode to "detail"
+            openDetail(postId);
+        } catch (err) {
+            console.warn('[Community] query postId handling failed', err);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [router.query?.postId]);
 
     const toggleCommentLike = async (commentId) => {
         const token = getToken();
@@ -1336,3 +1355,4 @@ export default function Community() {
 
     return null;
 }
+
