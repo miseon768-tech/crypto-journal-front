@@ -176,6 +176,8 @@ export default function Community() {
             setOpen(false);
         };
 
+        const label = listMode === 'likes' ? '추천순' : (listMode === 'latest' ? '최신순' : (listMode === 'all' ? '전체' : '정렬'));
+
         return (
             <div className="relative inline-block" ref={ref}>
                 <button
@@ -184,7 +186,7 @@ export default function Community() {
                     aria-haspopup="true"
                     aria-expanded={open}
                 >
-                    최신순
+                    {label}
                 </button>
 
                 {open && (
