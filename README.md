@@ -1,3 +1,4 @@
+
 # EcoTory (Crypto Journal) - Frontend
 
 실시간 암호화폐 시세 기반 자산/포트폴리오 관리 및 커뮤니티 기능을 제공하는 **EcoTory** 프론트엔드(Next.js) 입니다.
@@ -7,73 +8,88 @@
 
 ---
 
-## 프로젝트 개요
-EcoTory 프론트엔드는 암호화폐 자산 관리, 실시간 시세, 커뮤니티, 포트폴리오, 알림 등 다양한 기능을 제공하는 React 기반의 Next.js 웹 애플리케이션입니다.
+## 한눈에 보기
+- 기술: Next.js 16, React 19, Zustand, Axios, STOMP.js + SockJS, Tailwind CSS
+- 역할: UI/UX, 인증(로그인/소셜), REST API 소비, STOMP 기반 실시간 수신
+
+자세한 아키텍처는 루트 `docs/architecture.md` 및 `../docs/architecture.md`(프로젝트 전체)를 참조하세요.
 
 ---
 
-## 주요 기능
-- 회원가입/로그인 (JWT, OAuth 지원)
-- 실시간 시세/호가/체결/차트 조회 및 UI 반영
-- 커뮤니티(게시글, 댓글, 좋아요, 신고)
-- 포트폴리오 및 자산 관리
-- 관심코인
-- 백엔드 API 연동(REST, WebSocket)
+## 요구사항
+- Node.js (권장 v20)
+- npm 또는 yarn
+
+## 환경변수
+프로젝트 루트 또는 `crypto-journal-front/.env.local`에 설정합니다.
+
+- `NEXT_PUBLIC_BACKEND_URL` (예: `http://localhost:8080`) — 프론트에서 REST 및 WebSocket 연결에 사용하는 백엔드 기본 URL
+
+개발 및 테스트용 도구(`tools/stomp-test.js`)에서 추가 환경변수를 사용합니다. 하드코딩된 URL이 없는지 확인하세요.
 
 ---
 
-## 기술 스택
-- Next.js 16
-- React 19
-- Zustand (상태관리)
-- Axios (API 통신)
-- STOMP.js + SockJS (WebSocket)
-- Tailwind CSS, PostCSS
-- Chart.js / lightweight-charts
-
----
-
-## 환경 변수
-`.env.local`에 백엔드 주소 등을 지정합니다.
-
-- `NEXT_PUBLIC_BACKEND_URL` (예: `http://localhost:8080` 또는 `http://3.36.109.46.nip.io:8080`)
-- 필요 시 OAuth 관련 값은 백엔드에서 처리(redirect-uri는 백엔드 프로파일에 의해 결정)
-
----
-
-## 실행 방법 (로컬)
+## 로컬 실행 (개발)
 ```bash
-npm install
+npm ci
 npm run dev
 ```
-- 기본 개발 서버: http://localhost:3000
-- 3000 포트가 점유 중이면 Next가 자동으로 3000 등 다른 포트를 사용합니다.
+
+- 개발 서버: http://localhost:3000
+
+`.env.local` 예시:
+
+```
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8080
+```
 
 ---
 
-## 빌드/실행 (배포)
+## 빌드 / 프로덕션
 ```bash
 npm run build
 npm run start
 ```
 
----
+Docker 이미지 빌드:
 
-## 트러블슈팅 메모
-### 1) WebSocket 연결이 계속 403으로 실패할 때
-브라우저에서 아래처럼 보이면:
-- `GET http://<host>:8080/ws/info ... 403 (Forbidden)`
-
-대부분 원인은 다음 중 하나입니다.
-- 백엔드 WebSocket endpoint의 `allowedOriginPatterns`에 **현재 접속 중인 프론트 Origin(포트 포함)** 이 빠짐
-- Spring Security에서 `/ws/**` 경로가 permit 처리되지 않음
-
-### 2) 로컬 테스트 중인데 AWS로 연결되는 문제
-웹소켓/REST 대상 주소가 하드코딩되어 있으면 로컬에서 테스트해도 배포 서버로 붙을 수 있습니다.
-- 해결: 프론트는 `NEXT_PUBLIC_BACKEND_URL` 기반으로만 서버 주소를 만들고, dev/prod에 따라 `.env.local` 값을 바꿔서 테스트합니다.
+```bash
+docker build -t crypto-journal-front:latest -f Dockerfile .
+docker run -e NEXT_PUBLIC_BACKEND_URL='http://localhost:8080' -p 3000:3000 crypto-journal-front:latest
+```
 
 ---
 
-## 기타
-- 커스텀 컴포넌트: `components/`
-- 주요 페이지: `/pages/dashboard`, `/pages/login`, `/pages/signup`
+## WebSocket (STOMP) 연결
+- 프론트는 백엔드의 STOMP endpoint(`/ws`)에 SockJS + STOMP로 연결합니다.
+- STOMP 연결 시 서버가 인증을 요구하면 CONNECT 단계에 `Authorization: Bearer <token>` 헤더를 전송해야 합니다.
+
+예시 (stompjs):
+
+```js
+const socket = new SockJS(`${process.env.NEXT_PUBLIC_BACKEND_URL}/ws`);
+const client = Stomp.over(socket);
+const headers = { Authorization: `Bearer ${accessToken}` };
+client.connect(headers, onConnect, onError);
+```
+
+프론트에서 `/ws/info`가 403이면 백엔드의 CORS / allowedOrigin 설정을 먼저 확인하세요.
+
+---
+
+## 트러블슈팅
+- WebSocket 403: 백엔드의 `allowedOriginPatterns`에 현재 Origin(포트 포함)이 포함되어 있는지 확인
+- 잘못된 API 주소: `NEXT_PUBLIC_BACKEND_URL` 값이 로컬이 아닌 배포 주소로 하드코딩되어 있는지 확인
+- 인증 오류: 클라이언트 측에서 `Authorization` 헤더가 올바르게 설정되어 있는지 확인
+
+---
+
+## 개발 참고
+- WebSocket 테스트 스크립트: `tools/stomp-test.js`
+- 주요 컴포넌트: `components/`, `pages/dashboard`, `pages/login`, `pages/signup`
+
+---
+
+## 라이선스
+개인 포트폴리오/학습 목적 프로젝트입니다.
+
