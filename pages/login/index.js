@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import { login as loginApi } from "../../api/member";
 import { useAccount, useToken } from "../../stores/account-store";
+import { resolveSocialRedirectUri } from "../../utils/social-auth";
 
 export default function Login() {
     const router = useRouter();
@@ -53,8 +54,7 @@ export default function Login() {
             setLoginError(false);
 
             try {
-                const origin = (typeof window !== 'undefined' && window.location.origin) || '';
-                const redirectUri = queryRedirectUri ? decodeURIComponent(queryRedirectUri) : `${origin}/${provider}/callback`;
+                const redirectUri = queryRedirectUri ? decodeURIComponent(queryRedirectUri) : resolveSocialRedirectUri(provider);
                 // use consistent env var name NEXT_PUBLIC_BACKEND_URL
                 const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://3.36.109.46.nip.io:8080").replace(/\/$/, '');
                 const url = `${backendUrl}/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
@@ -137,8 +137,7 @@ export default function Login() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const origin = typeof window !== "undefined" ? window.location.origin : "";
-                                    const redirect = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI || `${origin}/google/callback`;
+                                    const redirect = resolveSocialRedirectUri("google");
                                     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
                                     if (!isValidClientId(clientId)) {
                                         alert("Google 클라이언트 ID 미설정 또는 placeholder 사용");
@@ -160,8 +159,7 @@ export default function Login() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const origin = typeof window !== "undefined" ? window.location.origin : "";
-                                    const redirect = process.env.NEXT_PUBLIC_NAVER_REDIRECT_URI || `${origin}/naver/callback`;
+                                    const redirect = resolveSocialRedirectUri("naver");
                                     const clientId = process.env.NEXT_PUBLIC_NAVER_CLIENT_ID || "";
                                     if (!isValidClientId(clientId)) {
                                         alert("Naver 클라이언트 ID 미설정 또는 placeholder 사용");
@@ -182,14 +180,13 @@ export default function Login() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const origin = typeof window !== "undefined" ? window.location.origin : "";
-                                    const redirect = process.env.NEXT_PUBLIC_KAKAO_REDIRECT_URI || `${origin}/kakao/callback`;
+                                    const redirect = resolveSocialRedirectUri("kakao");
                                     const clientId = process.env.NEXT_PUBLIC_KAKAO_CLIENT_ID || "";
                                     if (!isValidClientId(clientId)) {
                                         alert("Kakao 클라이언트 ID 미설정 또는 placeholder 사용");
                                         return;
                                     }
-                                    const scope = "profile_nickname,account_email";
+                                    const scope = "profile_nickname";
                                     window.location.href = `https://kauth.kakao.com/oauth/authorize?response_type=code&client_id=${encodeURIComponent(
                                         clientId
                                     )}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}`;

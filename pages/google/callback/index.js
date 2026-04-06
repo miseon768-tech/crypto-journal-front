@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import { useEffect } from "react";
 import { socialLogin } from "../../../api/social";
 import { useAccount, useToken } from "../../../stores/account-store";
+import { resolveSocialRedirectUri } from "../../../utils/social-auth";
 
 export default function GoogleCallback() {
     const router = useRouter();
@@ -13,8 +14,7 @@ export default function GoogleCallback() {
 
         const doCallback = async () => {
             const code = router.query.code;
-            const origin = typeof window !== "undefined" ? window.location.origin : "";
-            const redirectUri = `${origin}/google/callback`;
+            const redirectUri = resolveSocialRedirectUri("google");
 
             try {
                 const data = await socialLogin('google', code, redirectUri);

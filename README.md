@@ -54,6 +54,11 @@ NEXT_PUBLIC_KAKAO_REDIRECT_URI=http://localhost:3000/kakao/callback
 
 소셜 로그인 공급자 콘솔에는 위 콜백 URI를 **정확히 동일하게** 등록해야 합니다.
 
+- 로컬 개발 시: `http://localhost:3000/google/callback`, `http://localhost:3000/naver/callback`, `http://localhost:3000/kakao/callback`
+- 배포 환경 시: `http://3.36.109.46.nip.io:3000/google/callback`, `http://3.36.109.46.nip.io:3000/naver/callback`, `http://3.36.109.46.nip.io:3000/kakao/callback`
+
+특히 Kakao는 `redirect_uri`가 한 글자라도 다르면 인가 코드를 발급하지 않습니다.
+
 ---
 
 ## 빌드 / 프로덕션
@@ -92,6 +97,8 @@ client.connect(headers, onConnect, onError);
 - WebSocket 403: 백엔드의 `allowedOriginPatterns`에 현재 Origin(포트 포함)이 포함되어 있는지 확인
 - 잘못된 API 주소: `NEXT_PUBLIC_BACKEND_URL` 값이 로컬이 아닌 배포 주소로 하드코딩되어 있는지 확인
 - 인증 오류: 클라이언트 측에서 `Authorization` 헤더가 올바르게 설정되어 있는지 확인
+- Kakao `KOE205`: 카카오 개발자 콘솔의 동의항목에 없는 scope를 요청한 경우입니다. 현재 프론트는 `profile_nickname`만 요청하므로, 이메일이 필요하면 콘솔에서 `account_email` 동의항목을 활성화한 뒤 프론트 요청 scope도 함께 맞추세요.
+- Kakao 리디렉트/토큰 오류: 카카오 콘솔의 **REST API 키**와 프론트의 `NEXT_PUBLIC_KAKAO_CLIENT_ID`가 같아야 합니다. 또 콘솔에서 **클라이언트 시크릿이 활성화**되어 있다면 백엔드에도 `KAKAO_CLIENT_SECRET`를 반드시 주입해야 토큰 교환이 성공합니다.
 
 ---
 

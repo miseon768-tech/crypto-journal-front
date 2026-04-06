@@ -247,14 +247,13 @@ export default function Layout({ children }) {
         e.preventDefault();
         const emailTrim = (email || "").trim();
         const nicknameTrim = (nickname || "").trim();
-        if (!emailTrim) return alert("이메일을 입력하세요.");
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(emailTrim)) return alert("유효한 이메일을 입력하세요.");
+        if (emailTrim && !emailRegex.test(emailTrim)) return alert("유효한 이메일을 입력하세요.");
         if (!nicknameTrim) return alert("닉네임을 입력하세요.");
         try {
             const token = getStoredToken();
             if (!token) throw new Error("로그인이 필요합니다.");
-            const payload = { email: emailTrim, nickname: nicknameTrim, displayName, bio };
+            const payload = { email: emailTrim || null, nickname: nicknameTrim, displayName, bio };
             await updateMember(token, payload);
             alert("프로필이 저장되었습니다.");
             // update header nickname if changed
@@ -337,7 +336,7 @@ export default function Layout({ children }) {
                                                 <>
                                                     <div>
                                                         <label className="block text-xs text-white/70 mb-1">이메일</label>
-                                                        <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" placeholder="email@example.com" type="email" />
+                                                        <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 rounded bg-gray-800" placeholder="email@example.com (선택)" type="email" />
                                                     </div>
                                                     <div>
                                                         <label className="block text-xs text-white/70 mb-1">닉네임</label>
