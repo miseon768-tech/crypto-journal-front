@@ -24,6 +24,9 @@
 프로젝트 루트 또는 `crypto-journal-front/.env.local`에 설정합니다.
 
 - `NEXT_PUBLIC_BACKEND_URL` (예: `http://localhost:8080`) — 프론트에서 REST 및 WebSocket 연결에 사용하는 백엔드 기본 URL
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` — 구글 로그인용 클라이언트 ID / 콜백 URI
+- `NEXT_PUBLIC_NAVER_CLIENT_ID`, `NEXT_PUBLIC_NAVER_REDIRECT_URI` — 네이버 로그인용 클라이언트 ID / 콜백 URI
+- `NEXT_PUBLIC_KAKAO_CLIENT_ID`, `NEXT_PUBLIC_KAKAO_REDIRECT_URI` — 카카오 로그인용 REST API 키 / 콜백 URI
 
 개발 및 테스트용 도구(`tools/stomp-test.js`)에서 추가 환경변수를 사용합니다. 하드코딩된 URL이 없는지 확인하세요.
 
@@ -41,7 +44,15 @@ npm run dev
 
 ```
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8080
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+NEXT_PUBLIC_GOOGLE_REDIRECT_URI=http://localhost:3000/google/callback
+NEXT_PUBLIC_NAVER_CLIENT_ID=your-naver-client-id
+NEXT_PUBLIC_NAVER_REDIRECT_URI=http://localhost:3000/naver/callback
+NEXT_PUBLIC_KAKAO_CLIENT_ID=your-kakao-rest-api-key
+NEXT_PUBLIC_KAKAO_REDIRECT_URI=http://localhost:3000/kakao/callback
 ```
+
+소셜 로그인 공급자 콘솔에는 위 콜백 URI를 **정확히 동일하게** 등록해야 합니다.
 
 ---
 

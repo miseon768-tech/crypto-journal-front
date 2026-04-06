@@ -144,12 +144,11 @@ export default function Login() {
                                         alert("Google 클라이언트 ID 미설정 또는 placeholder 사용");
                                         return;
                                     }
-                                    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+                                    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
                                         clientId
                                     )}&redirect_uri=${encodeURIComponent(
                                         redirect
                                     )}&response_type=code&scope=${encodeURIComponent("profile email")}`;
-                                    window.location.href = url;
                                 }}
                                 className="w-full py-3 rounded-xl flex items-center justify-center gap-3 bg-black text-white hover:scale-[1.02] transition shadow hover:shadow-lg"
                             >
@@ -169,15 +168,36 @@ export default function Login() {
                                         return;
                                     }
                                     const stateVal = Math.random().toString(36).substring(2);
-                                    const url = `https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=${encodeURIComponent(
+                                    window.location.href = `https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=${encodeURIComponent(
                                         clientId
                                     )}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(stateVal)}`;
-                                    window.location.href = url;
                                 }}
                                 className="w-full py-3 rounded-xl flex items-center justify-center gap-3 bg-black text-white hover:scale-[1.02] transition shadow hover:shadow-lg"
                             >
                                 <img src="/NAVER_login_Dark_KR_white_icon_H56.png" alt="Naver" className="h-6 w-6" />
                                 <span>네이버로 시작하기</span>
+                            </button>
+
+                            {/* Kakao Login */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const origin = typeof window !== "undefined" ? window.location.origin : "";
+                                    const redirect = process.env.NEXT_PUBLIC_KAKAO_REDIRECT_URI || `${origin}/kakao/callback`;
+                                    const clientId = process.env.NEXT_PUBLIC_KAKAO_CLIENT_ID || "";
+                                    if (!isValidClientId(clientId)) {
+                                        alert("Kakao 클라이언트 ID 미설정 또는 placeholder 사용");
+                                        return;
+                                    }
+                                    const scope = "profile_nickname,account_email";
+                                    window.location.href = `https://kauth.kakao.com/oauth/authorize?response_type=code&client_id=${encodeURIComponent(
+                                        clientId
+                                    )}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}`;
+                                }}
+                                className="w-full py-3 rounded-xl flex items-center justify-center gap-3 bg-yellow-400 text-black hover:scale-[1.02] transition shadow hover:shadow-lg font-medium"
+                            >
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-xs font-bold text-yellow-300">K</span>
+                                <span>카카오로 시작하기</span>
                             </button>
                         </div>
 
