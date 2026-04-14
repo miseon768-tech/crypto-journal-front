@@ -186,10 +186,9 @@ export default function Login() {
                                         alert("Kakao 클라이언트 ID 미설정 또는 placeholder 사용");
                                         return;
                                     }
-                                    const scope = "profile_nickname";
                                     window.location.href = `https://kauth.kakao.com/oauth/authorize?response_type=code&client_id=${encodeURIComponent(
                                         clientId
-                                    )}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}`;
+                                    )}&redirect_uri=${encodeURIComponent(redirect)}`;
                                 }}
                                 className="w-full py-3 rounded-xl flex items-center justify-center gap-3 bg-yellow-400 text-black hover:scale-[1.02] transition shadow hover:shadow-lg font-medium"
                             >

@@ -14,10 +14,11 @@ export default function NaverCallback() {
 
         const doCallback = async () => {
             const code = router.query.code;
+            const state = router.query.state;
             const redirectUri = resolveSocialRedirectUri("naver");
 
             try {
-                const data = await socialLogin('naver', code, redirectUri);
+                const data = await socialLogin('naver', code, redirectUri, { state });
                 const token = data?.token || null;
                 const member = data?.member || null;
 

@@ -1,6 +1,7 @@
-export async function socialLogin(provider, code, redirectUri) {
+export async function socialLogin(provider, code, redirectUri, options = {}) {
     const apiAddress = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://3.36.109.46.nip.io:8080").replace(/\/$/, '');
-    const url = `${apiAddress}/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}`;
+    const stateQuery = options?.state ? `&state=${encodeURIComponent(options.state)}` : "";
+    const url = `${apiAddress}/api/auth/${provider}?code=${encodeURIComponent(code)}&redirectUri=${encodeURIComponent(redirectUri)}${stateQuery}`;
 
     let response;
     try {
@@ -11,18 +12,21 @@ export async function socialLogin(provider, code, redirectUri) {
         throw e;
     }
 
-    let data;
+    let data = null;
+    let rawBody = "";
     try {
-        data = await response.json();
+        rawBody = await response.text();
+        data = rawBody ? JSON.parse(rawBody) : null;
     } catch (e) {
         data = null;
     }
 
     if (!response.ok) {
-        const msg = (data && (data.message || data.error)) || `HTTP ${response.status}`;
+        const msg = (data && (data.message || data.error)) || rawBody || `HTTP ${response.status}`;
         const err = new Error(`소셜 로그인 실패 (${response.status}): ${msg}`);
         err.status = response.status;
         err.body = data;
+        err.rawBody = rawBody;
         throw err;
     }
 

@@ -36,7 +36,9 @@ export default function KakaoCallback() {
                 router.push("/dashboard");
             } catch (err) {
                 console.error("[KakaoCallback] 소셜 로그인 에러", err);
-                alert("카카오 로그인 처리 중 오류가 발생했습니다: " + (err.message || "알 수 없음"));
+                const detail = err?.body?.message || err?.message || "알 수 없음";
+                const statusText = err?.status ? `(${err.status}) ` : "";
+                alert(`카카오 로그인 처리 중 오류가 발생했습니다 ${statusText}${detail}`);
                 router.push("/login");
             }
         };
